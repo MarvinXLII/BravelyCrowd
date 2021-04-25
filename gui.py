@@ -11,13 +11,13 @@ sys.path.append('src')
 from Utilities import get_filename
 from ROM import UNPACK, PACK
 
-MAIN_TITLE = f"Bravely Second Packer v{RELEASE}"
+MAIN_TITLE = f"Bravely Crowd v{RELEASE}"
 
 
 class GuiApplication:
     def __init__(self, settings=None):
         self.master = tk.Tk()
-        self.master.geometry('675x470')
+        self.master.geometry('625x175')
         self.master.title(MAIN_TITLE)
         self.initialize_gui()
         self.initialize_settings(settings)
