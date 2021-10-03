@@ -1,12 +1,15 @@
 import sys
 import hjson
-from gui import pack, unpack
+# from gui import pack, unpack
+
+sys.path.append('src')
+from ROM import UNPACK, PACK
 
 def main(settings):
     if settings['option'] == 'Pack':
-        pack(settings)
+        PACK(settings)
     if settings['option'] == 'Unpack':
-        unpack(settings)
+        UNPACK(settings)
 
 if __name__=='__main__':
     if len(sys.argv) != 2:

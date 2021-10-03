@@ -121,18 +121,20 @@ class GuiApplication:
 
 
 def unpack(settings):
-    try:
-        UNPACK(settings)
-    except:
-        return False
+    UNPACK(settings)
+    # try:
+    #     UNPACK(settings)
+    # except:
+    #     return False
     return True
 
 
 def pack(settings):
-    try:
-        PACK(settings)
-    except:
-        return False
+    PACK(settings)
+    # try:
+    #     PACK(settings)
+    # except:
+    #     return False
     return True
 
 

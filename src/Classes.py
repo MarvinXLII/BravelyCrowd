@@ -2,6 +2,7 @@ import os
 import zlib
 import sys
 # import pudb; pu.db
+import struct
 
 class FILE:
     def __init__(self, data):
@@ -37,6 +38,9 @@ class FILE:
 
 class CROWD:
     def __init__(self, path):
+        if path is None:
+            return
+
         self.path = path
         
         fileName = os.path.join(path, 'index.fs')
@@ -49,12 +53,10 @@ class CROWD:
             with open(fileName, 'rb') as file:
                 self.crowdData = bytearray(file.read())
             # Split crowd files
-            self.isCompressed = {}
             self.crowdFiles = {}
             self.separateCrowd()
         else:
             # Load files
-            self.isCompressed = {}
             self.crowdFiles = {}
             self.loadFiles()
 
@@ -103,7 +105,6 @@ class CROWD:
             if os.path.exists(fullName):
                 with open(fullName, 'rb') as file:
                     self.crowdFiles[fileName] = FILE(bytearray(file.read()))
-                    self.isCompressed[fileName] = True
             else:
                 sys.exit(f"{fileName} does not exist in {self.path}")
             if nextAddr == 0:
@@ -159,20 +160,23 @@ class CROWD:
         self.crowdData = self.adjustSize(self.crowdData)
 
     def extractFile(self, fileName, base, size):
-        self.isCompressed[fileName] = self.crowdData[base] & 0xFF  == 0x60
-        assert self.isCompressed[fileName]
-        if self.isCompressed[fileName]:
-            data = zlib.decompress(self.crowdData[base+4:base+size], -15)
-            data = bytearray(data)
-        else:
-            data = self.crowdData[base:base+size]
+        data = zlib.decompress(self.crowdData[base+4:base+size], -15)
+        data = bytearray(data)
         return FILE(data)
 
     def getData(self, fileName):
-        data = self.crowdFiles[fileName].data
-        if self.isCompressed[fileName]:
-            size = len(data)
-            data = zlib.compress(data)[2:-4]
-            header = int((size << 8) + 0x60).to_bytes(4, byteorder='little')
-            data = header + data
-        return data
+        size = len(data)
+        data = zlib.compress(data)[2:-4]
+        header = int((size << 8) + 0x60).to_bytes(4, byteorder='little')
+        return header + data
+
+class CROWD_BD(CROWD):
+    def __init__(self, path):
+        super().__init__(path)
+
+    def extractFile(self, fileName, base, size):
+        data = self.crowdData[base:base+size]
+        return FILE(data)
+
+    def getData(self, fileName):
+        return self.crowdFiles[fileName].data
