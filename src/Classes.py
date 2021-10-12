@@ -3,7 +3,7 @@ import zlib
 import xlrd
 import xlwt
 import math
-# import pudb; pu.db
+import pudb; pu.db
 
 class FILE:
     def __init__(self, data):
@@ -39,7 +39,8 @@ class FILE:
 
 # FILE object + access to reading and patching as if a spreadsheet
 class DATAFILE(FILE):
-    def __init__(self, data):
+    def __init__(self, fileName, data):
+        self.fileName = fileName
         super().__init__(data)
         self.address = 8
         # Data
@@ -56,11 +57,35 @@ class DATAFILE(FILE):
         self.count = self.read()  # number of entries
 
     def getTextData(self):
-        data = self.data[self.textBase:self.textBase+self.textSize]
-        data = bytes(data[::2]).split(b'\x00')
-        y = len(data) // self.count
-        x = [[str(d)[2:] for d in data[i::y]] for i in range(y)]
+        data = self.data[self.textBase:self.textBase+self.textSize+2]
+        strings = []
+        while data:
+            index = 0
+            chunk = bytearray()
+            while index < len(data):
+                chunk += data[index:index+2]
+                if data[index:index+2] == b'\x00\x00':
+                    break
+                index += 2
+            data = data[index+2:]
+            strings.append(chunk.decode('utf-16')[:-1]) # REMOVE b'\x00' from end
+            
+            # index = data.index(b'\x00\x00')
+            # index += index % 2
+            # chunk = data[:index+2]
+            # data = data[index+2:]
+            # strings.append(chunk.decode('utf-16'))
+
+        ### REORGANIZE STRING LIST
+        y = len(strings) // self.count
+        x = [[s for s in strings[i::y]] for i in range(y)]
         return x
+        # return strings
+        # data = self.data[self.textBase:self.textBase+self.textSize]
+        # data = bytes(data[::2]).split(b'\x00')
+        # y = len(data) // self.count
+        # x = [[str(d)[2:] for d in data[i::y]] for i in range(y)]
+        # return x
 
     def getComData(self):
         data = self.data[self.comBase:self.comBase+self.comSize]
@@ -175,9 +200,23 @@ class TABLE:
         with open(self.fileName, 'rb') as file:
             self.tableData = bytearray(file.read())
         baseName = os.path.basename(self.fileName)
-        self.crowdFiles = {baseName: DATAFILE(self.tableData)}
+        self.crowdFiles = {baseName: DATAFILE(self.fileName, self.tableData)}
 
     def dumpSheet(self):
+        for filename, data in self.crowdFiles.items():
+            if filename == '.fscache': continue
+            ext = bytearray(data.data[:4])
+            if not ext.isalpha():
+                return
+            if ext == b'BPAC':
+                return
+            if ext == b'CGFX':
+                return
+            if ext == b'darc':
+                return
+            if ext == b'BASB':
+                return
+        
         sheetName = self.fileName.split('.')[0] + '.xlsx'
         wb = xlwt.Workbook()
         for file in self.crowdFiles:
@@ -336,7 +375,7 @@ class CROWD:
                 self.isCompressed[fileName] = False
         if not self.isCompressed[fileName]:
             data = self.crowdData[base:base+size]
-        return DATAFILE(data)
+        return DATAFILE(fileName, data)
         # self.isCompressed[fileName] = self.crowdData[base] & 0xFF  == 0x60
         # if self.isCompressed[fileName]:
         #     data = zlib.decompress(self.crowdData[base+4:base+size], -15)
@@ -355,11 +394,25 @@ class CROWD:
         return data
 
     def dumpSheet(self):
+        for filename, data in self.crowdFiles.items():
+            if filename == '.fscache': continue
+            ext = bytearray(data.data[:4])
+            if not ext.isalpha():
+                return
+            if ext == b'BPAC':
+                return
+            if ext == b'CGFX':
+                return
+            if ext == b'darc':
+                return
+            if ext == b'BASB':
+                return
+
         wb = xlwt.Workbook()
         for file in self.crowdFiles:
             if file == '.fscache':
                 continue
-            # x = os.path.basename(self.fileName).replace('_', ' ')
+
             x = file.replace('_', ' ')
             if len(x) > 31:
                 x = x[:31]

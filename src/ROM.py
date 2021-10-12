@@ -93,14 +93,14 @@ class UNPACK(ROM):
         for root, dirs, files in os.walk('.'):
             root = root[2:]
             for file in files:
+                if 'ItemTable.btb' in file:
+                    print('here')
                 if file == 'index.fs':
                     continue
                 fileName = os.path.join(root, file)
                 checkName = os.path.join(self.pathOut, fileName)
                 if os.path.isfile(checkName):
                     continue
-                if 'Script/Scene/TW_13_FlowerCountry/Scene/crowd.fs' == fileName:
-                    print('DECOMPRESS ERROR UP NEXT!')
                 if file == 'crowd.fs':
                     table = self.loadCrowd(root)
                     table.dumpFiles(self.pathOut)
@@ -108,8 +108,6 @@ class UNPACK(ROM):
                 else:
                     table = self.loadTable(fileName)
                     self.copyFile(fileName)
-                # if 'Graphics' in fileName:
-                #     continue
 
                 ### OKAY FILES:
                 # btb
@@ -120,6 +118,7 @@ class UNPACK(ROM):
                         table.dumpSheet()
                     except:
                         print(fileName, 'failed!')
+                        table.dumpSheet()
                         # sys.exit()
                 
         os.chdir(dir)
