@@ -93,32 +93,30 @@ class UNPACK(ROM):
         for root, dirs, files in os.walk('.'):
             root = root[2:]
             for file in files:
-                if 'ItemTable.btb' in file:
-                    print('here')
                 if file == 'index.fs':
                     continue
                 fileName = os.path.join(root, file)
                 checkName = os.path.join(self.pathOut, fileName)
+                if 'Parameter' in checkName:
+                    print('here')
                 if os.path.isfile(checkName):
                     continue
                 if file == 'crowd.fs':
                     table = self.loadCrowd(root)
                     table.dumpFiles(self.pathOut)
-                    self.copyFile(fileName)
                 else:
                     table = self.loadTable(fileName)
-                    self.copyFile(fileName)
+                self.copyFile(fileName) # COPY AFTER JUST IN CASE THERE IS AN ERROR!
 
-                ### OKAY FILES:
-                # btb
-                # tbl
-                if file == 'crowd.fs' or fileName.split('.')[-1] in ['btb', 'tbl']:
+                print(fileName)
+                if table.dumpSpreadsheet:
+                    print('Dumping spreadsheet!:', fileName)
                     try:
-                        print(fileName)
                         table.dumpSheet()
                     except:
-                        print(fileName, 'failed!')
+                        print(f'removing {checkName}')
+                        os.remove(checkName)
                         table.dumpSheet()
-                        # sys.exit()
+                        sys.exit()
                 
         os.chdir(dir)

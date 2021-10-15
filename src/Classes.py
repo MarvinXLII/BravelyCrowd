@@ -1,127 +1,218 @@
 import os
+import sys
 import zlib
 import xlrd
 import xlwt
 import math
+import struct
+import hashlib
+from io import BytesIO
 import pudb; pu.db
 
 class FILE:
     def __init__(self, data):
-        self.data = data
-        self.address = 0
-        self.encoding = {
-            1: 'utf-8',
-            2: 'utf-16',
-        }
+        self.fileSize = len(data)
+        self.data = BytesIO(data)
 
-    def read(self, size=4):
-        value = int.from_bytes(self.data[self.address:self.address+size], byteorder='little', signed=True)
-        self.address += size
-        return value
+    def getData(self):
+        return self.data.getbuffer().tobytes()
 
-    def readValue(self, address, size=4):
-        return int.from_bytes(self.data[address:address+size], byteorder='little', signed=True)
-
-    def readString(self, size=1):
-        # Find end of string
-        addrStart = self.address
-        while self.address < len(self.data) and self.data[self.address]:
-            self.address += size
-        # Decode string
-        string = self.data[addrStart:self.address].decode(self.encoding[size])
-        # Increment address up to the next string
-        while self.address < len(self.data):
-            if self.data[self.address] > 0:
+    def readStringUTF8(self):
+        string = bytearray()
+        while True:
+            string += self.data.read(1)
+            if string[-1] == 0:
                 break
-            self.address += 1
-        return string
+        return string.decode('utf-8')[:-1]
+
+    def readStringUTF16(self):
+        string = bytearray()
+        while True:
+            string += self.data.read(2)
+            if string[-2:] == b'\x00\x00':
+                break
+        return string.decode('utf-16')[:-1]
+
+    def readString(self, size):
+        string = self.data.read(size)
+        return string.decode('utf-8')
+
+    def readInt8(self):
+        return struct.unpack("<b", self.data.read(1))[0]
+
+    def readUInt8(self):
+        return struct.unpack("<B", self.data.read(1))[0]
+
+    def readInt16(self):
+        return struct.unpack("<h", self.data.read(2))[0]
+
+    def readInt32(self):
+        return struct.unpack("<l", self.data.read(4))[0]
+
+    def readUInt32(self):
+        return struct.unpack("<L", self.data.read(4))[0]
+
+    def readInt64(self):
+        return struct.unpack("<q", self.data.read(8))[0]
+
+    def readUInt64(self):
+        return struct.unpack("<Q", self.data.read(8))[0]
+
+    def readFloat(self):
+        return struct.unpack("<f", self.data.read(4))[0]
 
 
 # FILE object + access to reading and patching as if a spreadsheet
 class DATAFILE(FILE):
     def __init__(self, fileName, data):
+        inflated = self.decompress(data)
+        self.sha = hashlib.sha1(inflated).hexdigest()
+        super().__init__(inflated)
+
+        # File
         self.fileName = fileName
-        super().__init__(data)
-        self.address = 8
+        self.fileFormat = self.readFileFormat()
+        self.dumpSpreadsheet = self.fileFormat == b'BTBF'
+        if not self.dumpSpreadsheet: return
+        assert self.fileSize == self.readInt32(), f'FILE SIZE DOES NOT MATCH THE DATA!\n{self.fileName}\n{self.fileFormat}'
         # Data
-        self.base = self.read()
-        self.size = self.read()
+        self.base = self.readInt32()
+        self.size = self.readInt32()
         # Command strings
-        self.comBase = self.read()
-        self.comSize = self.read()
+        self.comBase = self.readInt32()
+        self.comSize = self.readInt32()
         # Text
-        self.textBase = self.read()
-        self.textSize = self.read()
+        self.textBase = self.readInt32()
+        self.textSize = self.readInt32()
         # Entries
-        self.stride = self.read() # bytes / entry
-        self.count = self.read()  # number of entries
+        self.stride = self.readInt32() # bytes / entry
+        self.count = self.readInt32()  # number of entries
 
-    def getTextData(self):
-        data = self.data[self.textBase:self.textBase+self.textSize+2]
-        strings = []
-        while data:
-            index = 0
-            chunk = bytearray()
-            while index < len(data):
-                chunk += data[index:index+2]
-                if data[index:index+2] == b'\x00\x00':
-                    break
-                index += 2
-            data = data[index+2:]
-            strings.append(chunk.decode('utf-16')[:-1]) # REMOVE b'\x00' from end
-            
-            # index = data.index(b'\x00\x00')
-            # index += index % 2
-            # chunk = data[:index+2]
-            # data = data[index+2:]
-            # strings.append(chunk.decode('utf-16'))
+        # Get possible starts of all strings
+        # Useful for finding string offset columns
+        self.comStarts = set()
+        if self.comSize:
+            self.data.seek(self.comBase)
+            self.comStarts.add(0)
+            while self.data.tell() < self.comBase + self.comSize:
+                while self.readInt8() > 0:
+                    pass
+                self.comStarts.add(self.data.tell() - self.comBase)
+        self.textStarts = set()
+        if self.textSize:
+            self.data.seek(self.textBase)
+            self.textStarts.add(0)
+            while self.data.tell() < self.textBase + self.textSize:
+                while self.readInt16() > 0:
+                    pass
+                self.textStarts.add(self.data.tell() - self.textBase)
 
-        ### REORGANIZE STRING LIST
-        y = len(strings) // self.count
-        x = [[s for s in strings[i::y]] for i in range(y)]
-        return x
-        # return strings
-        # data = self.data[self.textBase:self.textBase+self.textSize]
-        # data = bytes(data[::2]).split(b'\x00')
-        # y = len(data) // self.count
-        # x = [[str(d)[2:] for d in data[i::y]] for i in range(y)]
-        # return x
+    def readFileFormat(self):
+        string = self.data.read(4)
+        if string.isalpha():
+            return string
+        return None
 
-    def getComData(self):
-        data = self.data[self.comBase:self.comBase+self.comSize]
-        x = bytes(data).split(b'\x00')
-        try:
-            return [xi.decode() for xi in x]
-        except:
+    def decompress(self, data):
+        self.isComp = data[0] == 0x60
+        if self.isComp:
+            decompSize = int.from_bytes(data[1:4], byteorder='little', signed=True)
+            try: # On the off chance a non-compressed file starts with 0x60!
+                decompData = zlib.decompress(data[4:], -15)
+                decompData = bytearray(decompData)
+                assert len(decompData) == decompSize
+            except:
+                self.isComp = False
+        if self.isComp:
+            return decompData
+        return data
+
+    # Data to dump for packing
+    def fileContents(self):
+        return {
+            self.fileName: {
+                'format': self.fileFormat, # Needed for first 4 bytes of inflated data
+                'compressed': self.isComp, # Used to determine whether or not to compress data
+                'sha': self.sha,           # Needed to check if file has been modified (NB: sha of inflated data)
+                'spreadsheet': self.dumpSpreadsheet,
+            }
+        }
+
+    def getComData(self, offsets):
+        if self.comSize == 0:
             return []
+        strings = []
+        for start, end in zip(offsets[:-1], offsets[1:]):
+            self.data.seek(self.comBase + start)
+            s = self.data.read(end - start)
+            try:
+                strings.append(s.decode('utf-8')[:-1])
+            except:
+                strings.append(list(map(chr, s)))
+        return strings
         
-    # Data tables can only be updated under certain circumstances.
-    # Assumes all columns have the same byte size (currently 4)
-    # Assumes no text.
-    # Now, only use for Shops and Ability tables
-    def updateData(self, *cols):
-        # Ensure no text
-        assert self.comSize == 0
-        assert self.textSize == 0
-        # Update data
-        data = bytearray([])
-        numEntries = 0
-        for row in zip(*cols):
-            for ri in row:
-                data += ri.to_bytes(4, byteorder='little', signed=True)
-            numEntries += 1
-        lenData = len(data).to_bytes(4, byteorder='little', signed=True)
-        fileSize = int(len(data)+0x30).to_bytes(4, byteorder='little', signed=True)
-        header = bytearray(b'BTBF')
-        header += fileSize
-        header += int(0x30).to_bytes(4, byteorder='little', signed=True)
-        header += lenData
-        header += fileSize + bytearray([0]*4)
-        header += fileSize + bytearray([0]*4)
-        header += int(8).to_bytes(4, byteorder='little', signed=True)
-        header += numEntries.to_bytes(4, byteorder='little', signed=True)
-        header += bytearray([0]*8)
-        self.data = header + data
+    def getTextData(self, offsets):
+        if self.textSize == 0:
+            return []
+        strings = []
+        for start, end in zip(offsets[:-1], offsets[1:]):
+            self.data.seek(self.textBase + start)
+            s = self.data.read(end - start)
+            strings.append(s.decode('utf-16')[:-1])
+        return strings
+
+    def readAllComData(self):
+        self.data.seek(self.comBase)
+        strings = []
+        while self.data.tell() < self.comBase + self.comSize:
+            s = self.data.read(1)
+            while s[-1] > 0:
+                s += self.data.read(1)
+            try:
+                strings.append(s.decode('utf-8')[:-1])
+            except:
+                print('exception for ', s)
+                strings.append(list(map(chr, s)))
+        return strings
+
+    def readAllTextData(self):
+        self.data.seek(self.textBase)
+        strings = []
+        while self.data.tell() < self.textBase + self.textSize:
+            s = self.data.read(2)
+            while s[-2:] != b'\x00\x00':
+                s += self.data.read(2)
+                assert self.data.tell() <= self.textBase + self.textSize
+            strings.append(s.decode('utf-16')[:-1])
+        return strings
+        
+    # # Data tables can only be updated under certain circumstances.
+    # # Assumes all columns have the same byte size (currently 4)
+    # # Assumes no text.
+    # # Now, only use for Shops and Ability tables
+    # def updateData(self, *cols):
+    #     # Ensure no text
+    #     assert self.comSize == 0
+    #     assert self.textSize == 0
+    #     # Update data
+    #     data = bytearray([])
+    #     numEntries = 0
+    #     for row in zip(*cols):
+    #         for ri in row:
+    #             data += ri.to_bytes(4, byteorder='little', signed=True)
+    #         numEntries += 1
+    #     lenData = len(data).to_bytes(4, byteorder='little', signed=True)
+    #     fileSize = int(len(data)+0x30).to_bytes(4, byteorder='little', signed=True)
+    #     header = bytearray(b'BTBF')
+    #     header += fileSize
+    #     header += int(0x30).to_bytes(4, byteorder='little', signed=True)
+    #     header += lenData
+    #     header += fileSize + bytearray([0]*4)
+    #     header += fileSize + bytearray([0]*4)
+    #     header += int(8).to_bytes(4, byteorder='little', signed=True)
+    #     header += numEntries.to_bytes(4, byteorder='little', signed=True)
+    #     header += bytearray([0]*8)
+    #     self.data = header + data
 
     def readCol(self, col, row=0, numRows=None):
         if not numRows:
@@ -142,30 +233,20 @@ class DATAFILE(FILE):
         return data
     
     def readValue(self, row, col, size=4):
+        assert size == 4, "SIZES AREN'T ALWAYS 4!"
         address = self.base + row*self.stride + col*size
-        return int.from_bytes(self.data[address:address+size], byteorder='little', signed=True)
+        self.data.seek(address)
+        return self.readInt32()
 
-    def patchCol(self, lst, col, row=0):
-        for i, value in enumerate(lst):
-            self.patchValue(value, row+i, col)
-
-    def patchRow(self, lst, row, col=0):
-        for i, value in enumerate(lst):
-            self.patchValue(value, row, col+i)
-
-    def patchValue(self, value, row, col, size=4):
-        address = self.base + row*self.stride + col*size
-        self.data[address:address+size] = value.to_bytes(size, byteorder='little', signed=True)
-    
     def readComString(self, row, col):
         offset = self.readValue(row, col)
-        self.address = self.comBase + offset
-        return self.readString(size=1)
+        self.data.seek(self.comBase + offset)
+        return self.readStringUTF8()
 
     def readTextString(self, row, col):
         offset = self.readValue(row, col)
-        self.address = self.textBase + offset
-        return self.readString(size=2)
+        self.data.seek(self.textBase + offset)
+        return self.readStringUTF16()
 
     def readTextStringAll(self, col):
         strings = []
@@ -173,109 +254,6 @@ class DATAFILE(FILE):
             string = self.readTextString(row, col)
             strings.append(string)
         return strings
-    
-    # TODO
-    def patchString(self):
-        pass
-
-    # TODO -- probably won't need to patch commands, only text
-    def patchTextString(self, string, row, col):
-        # Check string first to ensure it fits!
-        check = self.readTextString(row, col)
-        assert len(check) >= len(string), 'String is too long!'
-        sizeDiff = 2 * (len(check) - len(string))
-        # Encode string
-        newString = string.encode('utf-16')[2:]
-        newString += bytearray([0]*sizeDiff)
-        # Patch
-        offset = self.readValue(row, col)
-        address = self.textBase + offset
-        self.data[address:address+len(newString)] = newString
-        
-
-
-class TABLE:
-    def __init__(self, fileName):
-        self.fileName = fileName
-        with open(self.fileName, 'rb') as file:
-            self.tableData = bytearray(file.read())
-        baseName = os.path.basename(self.fileName)
-        self.crowdFiles = {baseName: DATAFILE(self.fileName, self.tableData)}
-
-    def dumpSheet(self):
-        for filename, data in self.crowdFiles.items():
-            if filename == '.fscache': continue
-            ext = bytearray(data.data[:4])
-            if not ext.isalpha():
-                return
-            if ext == b'BPAC':
-                return
-            if ext == b'CGFX':
-                return
-            if ext == b'darc':
-                return
-            if ext == b'BASB':
-                return
-        
-        sheetName = self.fileName.split('.')[0] + '.xlsx'
-        wb = xlwt.Workbook()
-        for file in self.crowdFiles:
-            if file == '.fscache':
-                continue
-
-            x = file.replace('_', ' ')
-            if len(x) > 31:
-                x = x[:31]
-            wb.add_sheet(x)
-            sheet = wb.get_sheet(x)
-
-            data = self.crowdFiles[file]
-            com = data.getComData()
-            textData = data.getTextData()
-            numCol = int(data.stride / 4)
-            numRows = data.count
-
-            # TEXT STUFF
-            comCols = int(round(len(com) / numRows))
-            if comCols == 0 and com:
-                for c in com:
-                    assert c == ''
-                comCols = len(com)
-
-            col = 0
-            row = 1
-            counter = 0
-            while com:
-                for i in range(comCols):
-                    if com:
-                        value = com.pop(0)
-                        sheet.write(row, col+i, value)
-                row += 1
-                counter += 1
-                if counter == 10000:
-                    print('STUCK IN LOOP IN ', file, sheetName)
-            col += max(1, comCols)
-
-            for text in textData:
-                for row, value in enumerate(text):
-                    sheet.write(row+1, col, value)
-                col += 1
-
-            for i in range(numCol):
-                colData = data.readCol(i)
-                for row, value in enumerate(colData):
-                    sheet.write(row+1, col, value)
-                col += 1
-
-            pre, ext = os.path.splitext(self.fileName)
-            output = pre + '.xlsx'
-            wb.save(output)
-            
-
-    def dump(self):
-        with open(self.fileName, 'wb') as file:
-            file.write(self.tableData)
-
 
 
 class CROWD:
@@ -292,9 +270,13 @@ class CROWD:
             self.crowdData = bytearray(file.read())
 
         # Split crowd files
-        self.isCompressed = {}
         self.crowdFiles = {}
         self.separateCrowd()
+        self.dumpSpreadsheet = all([f.dumpSpreadsheet for f in self.crowdFiles.values() if '.fscache' not in f.fileName])
+        self.crowdSpecs = {}
+        for key, value in self.crowdFiles.items():
+            self.crowdSpecs.update(value.fileContents())
+        self.sheetName = os.path.join(path, 'crowd.xlsx')
 
     def dump(self):
         # Rebuild index and crowd data
@@ -314,23 +296,24 @@ class CROWD:
         for fileName, data in self.crowdFiles.items():
             fileOut = os.path.join(self.path, fileName)
             with open(fileOut, 'wb') as file:
-                file.write(data.data)
+                file.write(data.getData())
 
     def separateCrowd(self):
-        nextAddr = self.indexFile.read()
+        nextAddr = self.indexFile.readInt32()
         while True:
             # Extract file from crowd.fs
-            base = self.indexFile.read()
-            size = self.indexFile.read()
-            self.indexFile.address += 4
-            fileName = self.indexFile.readString()
-            self.crowdFiles[fileName] = self.extractFile(fileName, base, size)
-            # Last entry?
+            base = self.indexFile.readInt32()
+            size = self.indexFile.readInt32()
+            self.indexFile.data.seek(4, 1)
+            fileName = os.path.join(self.path, self.indexFile.readStringUTF8())
+            data = self.crowdData[base:base+size]
+            self.crowdFiles[fileName] = DATAFILE(fileName, data)
+            # Done with file?
             if nextAddr == 0:
                 break
             # Setup for next file
-            self.indexFile.address = nextAddr
-            nextAddr = self.indexFile.read()
+            self.indexFile.data.seek(nextAddr)
+            nextAddr = self.indexFile.readInt32()
 
     def adjustSize(self, data):
         if len(data) % 4:
@@ -363,96 +346,169 @@ class CROWD:
         # Finalize crowdData (actually necessary sometimes!)
         self.crowdData = self.adjustSize(self.crowdData)
 
-    def extractFile(self, fileName, base, size):
-        self.isCompressed[fileName] = self.crowdData[base] == 0x60
-        if self.isCompressed[fileName]:
-            decompSize = int.from_bytes(self.crowdData[base+1:base+4], byteorder='little', signed=True)
-            try: # On the off chance the file starts with 0x60 but is not compressed!
-                data = zlib.decompress(self.crowdData[base+4:base+size], -15)
-                data = bytearray(data)
-                assert len(data) == decompSize
-            except:
-                self.isCompressed[fileName] = False
-        if not self.isCompressed[fileName]:
-            data = self.crowdData[base:base+size]
-        return DATAFILE(fileName, data)
-        # self.isCompressed[fileName] = self.crowdData[base] & 0xFF  == 0x60
-        # if self.isCompressed[fileName]:
-        #     data = zlib.decompress(self.crowdData[base+4:base+size], -15)
-        #     data = bytearray(data)
-        # else:
-        #     data = self.crowdData[base:base+size]
-        # return DATAFILE(data)
-
-    def getData(self, fileName):
-        data = self.crowdFiles[fileName].data
-        if self.isCompressed[fileName]:
-            size = len(data)
-            data = zlib.compress(data)[2:-4]
-            header = int((size << 8) + 0x60).to_bytes(4, byteorder='little')
-            data = header + data
-        return data
+    # def getData(self, fileName):
+    #     data = self.crowdFiles[fileName].data
+    #     if self.isCompressed[fileName]:
+    #         size = len(data)
+    #         data = zlib.compress(data)[2:-4]
+    #         header = int((size << 8) + 0x60).to_bytes(4, byteorder='little')
+    #         data = header + data
+    #     return data
 
     def dumpSheet(self):
         for filename, data in self.crowdFiles.items():
-            if filename == '.fscache': continue
-            ext = bytearray(data.data[:4])
-            if not ext.isalpha():
-                return
-            if ext == b'BPAC':
-                return
-            if ext == b'CGFX':
-                return
-            if ext == b'darc':
-                return
-            if ext == b'BASB':
-                return
+            if '.fscache' in filename:
+                continue
+            assert data.dumpSpreadsheet, f'DUMPSPREADSHEET IS FALSE! {filename}'
 
         wb = xlwt.Workbook()
         for file in self.crowdFiles:
-            if file == '.fscache':
+            if '.fscache' in file:
                 continue
 
-            x = file.replace('_', ' ')
+            basename = os.path.basename(file)
+            print(f'   building {file}')
+
+            x = basename.replace('_', ' ')
             if len(x) > 31:
                 x = x[:31]
+            self.crowdSpecs[file]['sheet'] = x
+            
             wb.add_sheet(x)
             sheet = wb.get_sheet(x)
 
             data = self.crowdFiles[file]
-            com = data.getComData()
-            textData = data.getTextData()
-            numCol = int(data.stride / 4)
+            numCols = int(data.stride / 4)
             numRows = data.count
 
-            # TEXT STUFF
-            comCols = int(round(len(com) / numRows))
-            if comCols == 0 and com:
-                for c in com:
-                    assert c == ''
-                comCols = len(com)
+            def mono_increase(col):
+                return all(map(lambda x, y: x < y, col[:-1], col[1:]))
+
+            ## READ ALL COLUMNS
+            columns = []
+            for i in range(numCols):
+                column = data.readCol(i)
+                columns.append(data.readCol(i))
+
+            comColumns = {}
+            textColumns = {}
+            if data.textSize:
+                i = 0
+                while i < numCols:
+                    column = columns[i]
+                    i += 1
+                    if column[0] > 0: continue
+                    if column[-1] >= data.textSize: continue
+                    if not mono_increase(column): continue
+                    if not set(column).issubset(data.textStarts): continue
+                    textColumns[i-1] = column # This is the first column!
+                    break
+
+                startColumn = textColumns[i-1]
+                while i < numCols:
+                    column = columns[i]
+                    if all(map(lambda x, y: x > y, column, startColumn)):
+                        if column[-1] < data.textSize:
+                            textColumns[i] = column
+                    i += 1
+
+            if data.comSize:
+                i = 0
+                while i < numCols:
+                    column = columns[i]
+                    i += 1
+                    if column[0] > 0: continue
+                    if column[-1] >= data.comSize: continue
+                    if not mono_increase(column): continue
+                    if not set(column).issubset(data.comStarts): continue
+                    comColumns[i-1] = column
+                    break
+
+                startColumn = comColumns[i-1]
+                while i < numCols:
+                    column = columns[i]
+                    if all(map(lambda x, y: x > y, column, startColumn)):
+                        if column[-1] < data.comSize:
+                            comColumns[i] = column
+                    i += 1
+
+            # Commands
+            if comColumns:
+                offsets = []
+                if len(comColumns) == 1:
+                    offsets += list(comColumns.values())[0]
+                else:
+                    for x in zip(*comColumns.values()):
+                        offsets += list(x)
+                offsets.append(data.comSize)
+                sorted(offsets)
+                commands = data.getComData(offsets)
+            else:
+                commands = []
+
+            # Text
+            if textColumns:
+                offsets = []
+                if len(textColumns) == 1:
+                    offsets += list(textColumns.values())[0]
+                else:
+                    for x in zip(*textColumns.values()):
+                        offsets += list(x)
+                offsets.append(data.textSize)
+                sorted(offsets)
+                text = data.getTextData(offsets)
+            else:
+                text = []
 
             col = 0
-            row = 1
-            while com:
-                for i in range(comCols):
-                    if com:
-                        value = com.pop(0)
-                        sheet.write(row, col+i, value)
-                row += 1
-            col += max(1, comCols)
-
-            for text in textData:
-                for row, value in enumerate(text):
+            cols = len(commands) // numRows
+            for i in range(cols):
+                for row, c in enumerate(commands[i::cols]):
+                    sheet.write(row+1, col, c)
+                col += 1
+                
+            cols = len(text) // numRows
+            for i in range(cols):
+                for row, t in enumerate(text[i::cols]):
+                    sheet.write(row+1, col, t)
+                col += 1
+                
+            for column in columns:
+                for row, value in enumerate(column):
                     sheet.write(row+1, col, value)
                 col += 1
 
-            for i in range(numCol):
-                colData = data.readCol(i)
-                for row, value in enumerate(colData):
-                    sheet.write(row+1, col, value)
-                col += 1
+            allTextData = data.readAllTextData()
+            for a, t in zip(allTextData, text):
+                assert a == t
 
-        sheetName = os.path.join(self.path, 'crowd.xlsx')
-        wb.save(sheetName)
+            allComData = data.readAllComData()
+            for a, c in zip(allComData, commands):
+                try:
+                    assert a == c
+                except:
+                    print(data.fileName)
+
+        wb.save(self.sheetName)
+        print('   Done!')
             
+
+
+class TABLE(CROWD):
+    def __init__(self, fileName):
+        self.path = os.path.dirname(fileName)
+        self.fileName = fileName
+        self.baseName = os.path.basename(fileName)
+        with open(self.fileName, 'rb') as file:
+            self.tableData = bytearray(file.read())
+        self.crowdFiles = {self.fileName: DATAFILE(self.fileName, self.tableData)}
+        self.dumpSpreadsheet = all([f.dumpSpreadsheet for f in self.crowdFiles.values()])
+        self.crowdSpecs = {}
+        for key, value in self.crowdFiles.items():
+            self.crowdSpecs.update(value.fileContents())
+        pre, _ = os.path.splitext(fileName)
+        self.sheetName = f"{pre}.xlsx"
+
+    def dump(self):
+        with open(self.fileName, 'wb') as file:
+            file.write(self.tableData)
