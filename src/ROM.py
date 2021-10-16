@@ -1,5 +1,5 @@
 # from Classes import CROWD, CROWD_BD
-from Classes import CROWD, TABLE, CROWDSHEET, CROWDFILES
+from Classes import CROWD, TABLE, CROWDSHEET, CROWDFILES, TABLESHEET
 import os
 import shutil
 import sys
@@ -107,16 +107,35 @@ class PACK(ROM):
                     files.remove('crowd.fs')
                 if 'index.fs' in files:
                     files.remove('index.fs')
+
+            # Check table spreadsheets
+            sheets = list(filter(lambda x: '.xlsx' in x, files))
+            for sheet in sheets:
+                fileName = os.path.join(root, sheet)
+                print(fileName)
+                if fileName == 'Common_ko/Parameter/Item/ItemTable.xlsx':
+                    print('here')
+                if fileName == 'Common_ko/TutorialTable/TutorialJob_Data.xlsx':
+                    print('here')
+                table = TABLESHEET(root, sheet, crowdSpecs, sheetNames)
+                if table.isModified():
+                    table.dumpSheet(self.pathOut)
+                    name = table.getFileName() # Gives modified spreadsheet priority over individual file.
+                    files.remove(name)
+                # table.dumpTable(self.pathOut)
+                files.remove(sheet)
+                ### CLEAN THIS UP WITH SHEEETNAMES?
+                
             # Copy over the remaining files
             for file in files:
                 fileName = os.path.join(root, file)
                 print(fileName)
-                ## TODO: LOAD INIDIVIDUAL FILE SPREADSHEETS
                 with open(fileName, 'rb') as file:
                     data = file.read()
                 sha = hashlib.sha1(data).hexdigest()
-                if sha != crowdSpecs[fileName]['sha']: # ONLY COPY IF MODIFIED
-                    self.copyFile(fileName)
+                # if sha != crowdSpecs[fileName]['sha']: # ONLY COPY IF MODIFIED
+                #     self.copyFile(fileName)
+                self.copyFile(fileName)
 
         os.chdir(dir)
 
@@ -132,10 +151,10 @@ class UNPACK(ROM):
         sheetNames = {}
         for root, dirs, files in os.walk('.'):
             root = root[2:]
-            if 'Graphics/' in root:
-                continue
-            if 'Sound/' in root:
-                continue
+            # if 'Graphics/' in root:
+            #     continue
+            # if 'Sound/' in root:
+            #     continue
             for file in files:
                 if file == 'index.fs':
                     continue

@@ -154,7 +154,8 @@ class DATAFILE(FILE):
                 strings.append(s.decode('utf-8')[:-1])
             except:
                 print('exception for ', s)
-                strings.append(list(map(chr, s)))
+                strings.append(s[:-1].decode('utf-16'))
+                # strings.append(list(map(chr, s)))
             sizes.append(self.data.tell() - self.comBase)
         assert sizes.pop() == self.comSize
         return strings, sizes
@@ -349,7 +350,6 @@ class CROWDSHEET(CROWDFILES):
             self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
             sha = hashlib.sha1(self.data[sheetName]).hexdigest()
             assert sha == self.specs[sheetName]['sha'], f"{root}/{sheet.name}"
-            
 
     def toBytes(self, i):
         return i.to_bytes(4, byteorder='little', signed=True)
@@ -384,9 +384,10 @@ class CROWDSHEET(CROWDFILES):
                 text[i][j] = text[i][j].encode('utf-16')[2:] + b'\x00\x00'
         for i in range(nComCols):
             for j in range(nrows):
-                if type(commands[i][j]) != bytes:
-                    commands[i][j] = commands[i][j].encode('utf-8')
-                commands[i][j] += b'\x00'
+                s = commands[i][j].encode('utf-8')
+                if any([si & 0x80 for si in s]):
+                    s = commands[i][j].encode('utf-16')[2:]
+                commands[i][j] = s + b'\x00'
 
         # Get size lists
         def getSizeList(lst):
@@ -470,6 +471,36 @@ class CROWDSHEET(CROWDFILES):
         fileData += textBytes
         assert len(fileData) == fileSize
         return fileData
+
+class TABLESHEET(CROWDSHEET):
+    def __init__(self, root, fileName, specs, sheetToFile):
+        self.root = root
+        self.fileName = os.path.join(root, fileName)
+        self.specs = specs
+        self.sheetToFile = sheetToFile
+        self.spreadsheet = xlrd.open_workbook(self.fileName)
+        self.data = {}
+        for sheet in self.spreadsheet.sheets():
+            with open(os.path.join(root, self.sheetToFile[sheet.name]), 'rb') as file:
+                origData = file.read()
+            sheetName = os.path.join(root, self.sheetToFile[sheet.name])
+            self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
+            sha = hashlib.sha1(self.data[sheetName]).hexdigest()
+            assert sha == self.specs[sheetName]['sha'], f"{root}/{sheet.name}"
+
+    def dumpTable(self, path):
+        directory = os.path.join(path, self.root)
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
+        for name, data in self.data.items(): # name = root + file
+            fileName = os.path.join(path, name)
+            with open(fileName, 'wb') as file:
+                file.write(data)
+
+    def getFileName(self):
+        sheetName = list(self.data.keys())[0]
+        fileName = os.path.relpath(sheetName, self.root)
+        return fileName
 
 
 class CROWD:
