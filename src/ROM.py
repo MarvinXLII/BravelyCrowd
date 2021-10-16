@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 # from Spreadsheets import XLSX
+import pickle
 
 class ROM:
     def __init__(self, settings):
@@ -90,15 +91,18 @@ class UNPACK(ROM):
         super().__init__(settings)
         dir = os.getcwd()
         os.chdir(self.pathIn)
+        romfsData = {}
         for root, dirs, files in os.walk('.'):
             root = root[2:]
+            if 'Graphics/' in root:
+                continue
+            if 'Sound/' in root:
+                continue
             for file in files:
                 if file == 'index.fs':
                     continue
                 fileName = os.path.join(root, file)
                 checkName = os.path.join(self.pathOut, fileName)
-                if 'Parameter' in checkName:
-                    print('here')
                 if os.path.isfile(checkName):
                     continue
                 if file == 'crowd.fs':
@@ -115,8 +119,13 @@ class UNPACK(ROM):
                         table.dumpSheet()
                     except:
                         print(f'removing {checkName}')
-                        os.remove(checkName)
+                        # os.remove(checkName)
                         table.dumpSheet()
                         sys.exit()
-                
+
+                romfsData.update(table.crowdSpecs)
+
         os.chdir(dir)
+        with open('data.pickle','wb') as file:
+            pickle.dump(romfsData, file)
+

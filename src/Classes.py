@@ -88,25 +88,6 @@ class DATAFILE(FILE):
         self.stride = self.readInt32() # bytes / entry
         self.count = self.readInt32()  # number of entries
 
-        # Get possible starts of all strings
-        # Useful for finding string offset columns
-        self.comStarts = set()
-        if self.comSize:
-            self.data.seek(self.comBase)
-            self.comStarts.add(0)
-            while self.data.tell() < self.comBase + self.comSize:
-                while self.readInt8() > 0:
-                    pass
-                self.comStarts.add(self.data.tell() - self.comBase)
-        self.textStarts = set()
-        if self.textSize:
-            self.data.seek(self.textBase)
-            self.textStarts.add(0)
-            while self.data.tell() < self.textBase + self.textSize:
-                while self.readInt16() > 0:
-                    pass
-                self.textStarts.add(self.data.tell() - self.textBase)
-
     def readFileFormat(self):
         string = self.data.read(4)
         if string.isalpha():
@@ -138,32 +119,32 @@ class DATAFILE(FILE):
             }
         }
 
-    def getComData(self, offsets):
-        if self.comSize == 0:
-            return []
-        strings = []
-        for start, end in zip(offsets[:-1], offsets[1:]):
-            self.data.seek(self.comBase + start)
-            s = self.data.read(end - start)
-            try:
-                strings.append(s.decode('utf-8')[:-1])
-            except:
-                strings.append(list(map(chr, s)))
-        return strings
+    # def getComData(self, offsets):
+    #     if self.comSize == 0:
+    #         return []
+    #     strings = []
+    #     for start, end in zip(offsets[:-1], offsets[1:]):
+    #         self.data.seek(self.comBase + start)
+    #         s = self.data.read(end - start)
+    #         try:
+    #             strings.append(s.decode('utf-8')[:-1])
+    #         except:
+    #             strings.append(list(map(chr, s)))
+    #     return strings
         
-    def getTextData(self, offsets):
-        if self.textSize == 0:
-            return []
-        strings = []
-        for start, end in zip(offsets[:-1], offsets[1:]):
-            self.data.seek(self.textBase + start)
-            s = self.data.read(end - start)
-            strings.append(s.decode('utf-16')[:-1])
-        return strings
+    # def getTextData(self, offsets):
+    #     if self.textSize == 0:
+    #         return []
+    #     strings = []
+    #     for start, end in zip(offsets[:-1], offsets[1:]):
+    #         self.data.seek(self.textBase + start)
+    #         s = self.data.read(end - start)
+    #         strings.append(s.decode('utf-16')[:-1])
+    #     return strings
 
     def readAllComData(self):
         self.data.seek(self.comBase)
-        strings = []
+        strings = []; sizes = [0]
         while self.data.tell() < self.comBase + self.comSize:
             s = self.data.read(1)
             while s[-1] > 0:
@@ -173,18 +154,22 @@ class DATAFILE(FILE):
             except:
                 print('exception for ', s)
                 strings.append(list(map(chr, s)))
-        return strings
+            sizes.append(self.data.tell() - self.comBase)
+        assert sizes.pop() == self.comSize
+        return strings, sizes
 
     def readAllTextData(self):
         self.data.seek(self.textBase)
-        strings = []
+        strings = []; sizes = [0]
         while self.data.tell() < self.textBase + self.textSize:
             s = self.data.read(2)
             while s[-2:] != b'\x00\x00':
                 s += self.data.read(2)
                 assert self.data.tell() <= self.textBase + self.textSize
             strings.append(s.decode('utf-16')[:-1])
-        return strings
+            sizes.append(self.data.tell() - self.textBase)
+        assert sizes.pop() == self.textSize
+        return strings, sizes
         
     # # Data tables can only be updated under certain circumstances.
     # # Assumes all columns have the same byte size (currently 4)
@@ -361,6 +346,8 @@ class CROWD:
                 continue
             assert data.dumpSpreadsheet, f'DUMPSPREADSHEET IS FALSE! {filename}'
 
+        # Do this here to include 'fscache'
+        columnIDs = {file:{'commands':[], 'text':[]} for file in self.crowdFiles}
         wb = xlwt.Workbook()
         for file in self.crowdFiles:
             if '.fscache' in file:
@@ -372,7 +359,7 @@ class CROWD:
             x = basename.replace('_', ' ')
             if len(x) > 31:
                 x = x[:31]
-            self.crowdSpecs[file]['sheet'] = x
+            self.crowdSpecs[file]['sheetname'] = x
             
             wb.add_sheet(x)
             sheet = wb.get_sheet(x)
@@ -384,114 +371,64 @@ class CROWD:
             def mono_increase(col):
                 return all(map(lambda x, y: x < y, col[:-1], col[1:]))
 
-            ## READ ALL COLUMNS
+            # READ ALL COLUMNS
             columns = []
             for i in range(numCols):
                 column = data.readCol(i)
                 columns.append(data.readCol(i))
 
-            comColumns = {}
-            textColumns = {}
-            if data.textSize:
-                i = 0
-                while i < numCols:
-                    column = columns[i]
-                    i += 1
-                    if column[0] > 0: continue
-                    if column[-1] >= data.textSize: continue
-                    if not mono_increase(column): continue
-                    if not set(column).issubset(data.textStarts): continue
-                    textColumns[i-1] = column # This is the first column!
-                    break
+            # Read all commands
+            allCommandData, allCommandSizes = data.readAllComData()
+            assert len(allCommandData) % numRows == 0
+            comCols = len(allCommandData) // numRows
+            commandData = []; commandSizes = []
+            for i in range(comCols):
+                commandData.append(allCommandData[i::comCols])
+                commandSizes.append(allCommandSizes[i::comCols])
 
-                startColumn = textColumns[i-1]
-                while i < numCols:
-                    column = columns[i]
-                    if all(map(lambda x, y: x > y, column, startColumn)):
-                        if column[-1] < data.textSize:
-                            textColumns[i] = column
-                    i += 1
+            # Read all text
+            allTextData, allTextSizes = data.readAllTextData()
+            assert len(allTextData) % numRows == 0
+            textCols = len(allTextData) // numRows
+            textData = []; textSizes = []
+            for i in range(textCols):
+                textData.append(allTextData[i::textCols])
+                textSizes.append(allTextSizes[i::textCols])
 
-            if data.comSize:
-                i = 0
-                while i < numCols:
-                    column = columns[i]
-                    i += 1
-                    if column[0] > 0: continue
-                    if column[-1] >= data.comSize: continue
-                    if not mono_increase(column): continue
-                    if not set(column).issubset(data.comStarts): continue
-                    comColumns[i-1] = column
-                    break
-
-                startColumn = comColumns[i-1]
-                while i < numCols:
-                    column = columns[i]
-                    if all(map(lambda x, y: x > y, column, startColumn)):
-                        if column[-1] < data.comSize:
-                            comColumns[i] = column
-                    i += 1
-
-            # Commands
-            if comColumns:
-                offsets = []
-                if len(comColumns) == 1:
-                    offsets += list(comColumns.values())[0]
-                else:
-                    for x in zip(*comColumns.values()):
-                        offsets += list(x)
-                offsets.append(data.comSize)
-                sorted(offsets)
-                commands = data.getComData(offsets)
-            else:
-                commands = []
-
-            # Text
-            if textColumns:
-                offsets = []
-                if len(textColumns) == 1:
-                    offsets += list(textColumns.values())[0]
-                else:
-                    for x in zip(*textColumns.values()):
-                        offsets += list(x)
-                offsets.append(data.textSize)
-                sorted(offsets)
-                text = data.getTextData(offsets)
-            else:
-                text = []
-
+            # Dump data to spreadsheets
             col = 0
-            cols = len(commands) // numRows
-            for i in range(cols):
-                for row, c in enumerate(commands[i::cols]):
-                    sheet.write(row+1, col, c)
+            for column in commandData:
+                for row, value in enumerate(column):
+                    sheet.write(row+1, col, value)
                 col += 1
-                
-            cols = len(text) // numRows
-            for i in range(cols):
-                for row, t in enumerate(text[i::cols]):
-                    sheet.write(row+1, col, t)
+
+            for column in textData:
+                for row, value in enumerate(column):
+                    sheet.write(row+1, col, value)
                 col += 1
-                
+
             for column in columns:
                 for row, value in enumerate(column):
                     sheet.write(row+1, col, value)
                 col += 1
 
-            allTextData = data.readAllTextData()
-            for a, t in zip(allTextData, text):
-                assert a == t
-
-            allComData = data.readAllComData()
-            for a, c in zip(allComData, commands):
-                try:
-                    assert a == c
-                except:
-                    print(data.fileName)
+            # Store text and command column numbers
+            self.crowdSpecs[file]['commandColumns'] = []
+            self.crowdSpecs[file]['textColumns'] = []
+            while commandSizes:
+                lst = commandSizes.pop(0)
+                index = columns.index(lst)
+                assert index >= 0
+                self.crowdSpecs[file]['commandColumns'].append(index)
+            while textSizes:
+                lst = textSizes.pop(0)
+                index = columns.index(lst)
+                assert index >= 0
+                self.crowdSpecs[file]['textColumns'].append(index)
+            assert set(self.crowdSpecs[file]['textColumns']).isdisjoint(self.crowdSpecs[file]['commandColumns'])
 
         wb.save(self.sheetName)
         print('   Done!')
-            
 
 
 class TABLE(CROWD):
