@@ -72,8 +72,9 @@ class DATAFILE(FILE):
         # File
         self.fileName = fileName
         self.fileFormat = self.readFileFormat()
-        self.dumpSpreadsheet = self.fileFormat == b'BTBF'
+        self.dumpSpreadsheet = self.fileFormat == b'BTBF' or '.fscache' in self.fileName
         if not self.dumpSpreadsheet: return
+        if '.fscache' in self.fileName: return
         assert self.fileSize == self.readInt32(), f'FILE SIZE DOES NOT MATCH THE DATA!\n{self.fileName}\n{self.fileFormat}'
         # Data
         self.base = self.readInt32()
@@ -112,7 +113,7 @@ class DATAFILE(FILE):
     def fileContents(self):
         return {
             self.fileName: {
-                'format': self.fileFormat, # Needed for first 4 bytes of inflated data
+                'format': self.fileFormat if '.fscache' not in self.fileName else None,
                 'compressed': self.isComp, # Used to determine whether or not to compress data
                 'sha': self.sha,           # Needed to check if file has been modified (NB: sha of inflated data)
                 'spreadsheet': self.dumpSpreadsheet,
@@ -240,30 +241,261 @@ class DATAFILE(FILE):
             strings.append(string)
         return strings
 
+class CROWDFILES:
+    def __init__(self, root, fileList, specs):
+        self.root = root
+        self.specs = specs
+        self.data = {}
+        for fileName in fileList:
+            fileName = os.path.join(root, fileName)
+            assert os.path.isfile(fileName), f"File {fileName} belonging to crowd in directory {root} doesn't exist!"
+            with open(fileName, 'rb') as file:
+                self.data[fileName] = file.read()
+
+    # Checks if any file in the crowd is modified
+    def isModified(self):
+        for name, data in self.data.items():
+            sha = hashlib.sha1(data).hexdigest()
+            if sha != self.specs[name]['sha']:
+                return True
+        return False
+
+    def dumpCrowd(self, pathOut):
+        index, crowd = self._joinCrowd()
+        path = os.path.join(pathOut, self.root)
+        if not os.path.isdir(path):
+            os.makedirs(path)
+        fileIndex = os.path.join(path, 'index.fs')
+        with open(fileIndex, 'wb') as file:
+            file.write(index)
+        fileCrowd = os.path.join(path, 'crowd.fs')
+        with open(fileCrowd, 'wb') as file:
+            file.write(crowd)
+
+    def _getData(self, fileName):
+        data = self.data[fileName]
+        if self.specs[fileName]['compressed']:
+            size = len(data)
+            data = zlib.compress(data)[2:-4]
+            header = int((size << 8) + 0x60).to_bytes(4, byteorder='little')
+            data = header + data
+        return data
+
+    def _adjustSize(self, data):
+        if len(data) % 4:
+            x = 4 - (len(data) % 4)
+            data += bytearray([0]*x)
+        return data
+
+    def _joinCrowd(self):
+        indexFile = os.path.join(self.root, 'index.fs')
+        crowdFile = os.path.join(self.root, 'crowd.fs')
+        pathIn = '/mnt/pismire/Games/BravelyCrowd/romfs_unpacked_BS'
+        with open(os.path.join(pathIn, self.root, 'index.fs'), 'rb') as file:
+            indexOrig = file.read()
+            indexOrigSHA = hashlib.sha1(indexOrig).hexdigest()
+        with open(os.path.join(pathIn, self.root, 'crowd.fs'), 'rb') as file:
+            crowdOrig = file.read()
+            crowdOrigSHA = hashlib.sha1(crowdOrig).hexdigest()
+
+        index = bytearray([])
+        crowd = bytearray([])
+        for i, fileName in enumerate(self.data):
+            # File for the crowd (compressed if necessary)
+            data = self._getData(fileName)
+            # Entry in the index file
+            crowdStart = len(crowd).to_bytes(4, byteorder='little')
+            crowdSize = len(data).to_bytes(4, byteorder='little')
+            byteFileName = bytearray(map(ord, os.path.basename(fileName)))
+            crc32 = zlib.crc32(byteFileName).to_bytes(4, byteorder='little')
+            entry = crowdStart + crowdSize + crc32 + byteFileName + bytearray([0])
+            entry = self._adjustSize(entry)
+            if i < len(self.data)-1:
+                size = len(index) + 4 + len(entry)
+                pointer = size.to_bytes(4, byteorder='little')
+            else:
+                pointer = bytearray([0]*4)
+            index +=  pointer + entry
+            # Append crowd file
+            crowd += data
+            crowd = self._adjustSize(crowd)
+
+            assert index == indexOrig[:len(index)]
+            assert crowd == crowdOrig[:len(crowd)]
+        # Finalize crowdData (actually necessary sometimes!)
+        crowd = self._adjustSize(crowd)
+
+        indexSHA = hashlib.sha1(index).hexdigest()
+        crowdSHA = hashlib.sha1(crowd).hexdigest()
+        
+        assert indexSHA == indexOrigSHA
+        assert crowdSHA == crowdOrigSHA
+        return index, crowd
+
+
+class CROWDSHEET(CROWDFILES):
+    def __init__(self, root, specs, sheetToFile):
+        self.root = root
+        self.specs = specs
+        self.sheetToFile = sheetToFile
+        fileName = os.path.join(root, 'crowd.xlsx')
+        # assert self.specs[fileName]['spreadsheet']
+        self.spreadsheet = xlrd.open_workbook(fileName)
+        self.data = {}
+        for sheet in self.spreadsheet.sheets():
+            with open(os.path.join(root, self.sheetToFile[sheet.name]), 'rb') as file:
+                origData = file.read()
+            sheetName = os.path.join(root, self.sheetToFile[sheet.name])
+            self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
+            sha = hashlib.sha1(self.data[sheetName]).hexdigest()
+            assert sha == self.specs[sheetName]['sha'], f"{root}/{sheet.name}"
+            
+
+    def toBytes(self, i):
+        return i.to_bytes(4, byteorder='little', signed=True)
+        
+    def getDataFromSheet(self, sheet, origData, name):
+        if '.fscache' in name:
+            return b''
+        nrows = sheet.nrows - 1
+        ncols = sheet.ncols
+        # name = os.path.join(self.root, sheet.name)
+        assert self.specs[name]['spreadsheet']
+        textCols = self.specs[name]['textColumns']
+        nTextCols = len(textCols)
+        comCols = self.specs[name]['commandColumns']
+        nComCols = len(comCols)
+        # Sort columns by commands, text, and data
+        columns = []
+        for i in range(ncols):
+            columns.append(sheet.col_values(i)[1:])
+        commands = []
+        for i in range(nComCols):
+            commands.append(columns.pop(0))
+        text = []
+        for i in range(nTextCols):
+            text.append(columns.pop(0))
+        data = []
+        while columns:
+            data.append(list(map(int, columns.pop(0))))
+        # Encode commands and text accordingly
+        for i in range(nTextCols):
+            for j in range(nrows):
+                text[i][j] = text[i][j].encode('utf-16')[2:] + b'\x00\x00'
+        for i in range(nComCols):
+            for j in range(nrows):
+                if type(commands[i][j]) != bytes:
+                    commands[i][j] = commands[i][j].encode('utf-8')
+                commands[i][j] += b'\x00'
+
+        # Get size lists
+        def getSizeList(lst):
+            a = [] # a11 a12 ... a1n a21 a22 ...
+            for j in range(nrows):
+                for li in lst:
+                    a.append(li[j])
+            sizes = []; j = 0
+            for ai in a:
+                sizes.append(j)
+                j += len(ai)
+            n = len(lst)
+            return [sizes[i::n] for i in range(n)]
+        textSizes = getSizeList(text)
+        commandSizes = getSizeList(commands)
+        # Update appropriate data columns for any modifications to text and commands
+        for sizes, colIndex in zip(textSizes, textCols):
+            assert sizes == data[colIndex] # TEMPORARY
+            # data[colIndex] = sizes # KEEP
+        for sizes, colIndex in zip(commandSizes, comCols):
+            assert sizes == data[colIndex] # TEMPORARY
+            # data[colIndex] = sizes # KEEP
+        # Join commands, text, and data into bytearrays
+        def getByteArray(lst):
+            x = bytearray()
+            for i in range(nrows):
+                for lj in lst:
+                    x += lj[i]
+            # for li in lst:
+            #     for lj in li:
+            #         x += lj
+            return x
+        def getByteArrayInt(lst):
+            x = bytearray()
+            for i in range(nrows):
+                for lj in lst:
+                    x += self.toBytes(lj[i])
+            return x
+        commandBytes = getByteArray(commands)
+        textBytes = getByteArray(text)
+        dataBytes = getByteArrayInt(data)
+        # Merge into byte array
+        fileFormat = b'BTBF'
+        stride = len(data) * 4
+        count = nrows
+        base = 0x30
+        size = len(dataBytes)
+        comBase = base + size
+        if comBase % 4 > 0:
+            x = 4 - comBase % 4
+            comBase += x
+            dataBytes += b'\x00'*x
+        comSize = len(commandBytes)
+        textBase = comBase + comSize
+        if textBase % 2 > 0:
+            textBase += 1
+            commandBytes += b'\x00'
+        textSize = len(textBytes)
+        fileSize = textBase + textSize
+
+        fileData = bytearray()
+        fileData += fileFormat
+        fileData += self.toBytes(fileSize)
+        fileData += self.toBytes(base)
+        fileData += self.toBytes(size)
+        fileData += self.toBytes(comBase)
+        fileData += self.toBytes(comSize)
+        fileData += self.toBytes(textBase)
+        fileData += self.toBytes(textSize)
+        fileData += self.toBytes(stride)
+        fileData += self.toBytes(count)
+        fileData += bytearray([0]*8)
+        assert len(fileData) == base
+        for i, d in enumerate(dataBytes):
+            fileData.append(d)
+            assert fileData == origData[:len(fileData)], i
+        # fileData += dataBytes
+        assert len(fileData) == comBase
+        fileData += commandBytes
+        assert len(fileData) == textBase
+        fileData += textBytes
+        assert len(fileData) == fileSize
+        return fileData
+
 
 class CROWD:
-    def __init__(self, path):
+    def __init__(self, path, pathOut):
         self.path = path
+        self.pathOut = pathOut
         
         fileName = os.path.join(path, 'index.fs')
         with open(fileName, 'rb') as file:
             self.indexData = bytearray(file.read())
             self.indexFile = FILE(self.indexData)
 
-        fileName = os.path.join(path, 'crowd.fs')
-        with open(fileName, 'rb') as file:
+        fileNameCrowd = os.path.join(path, 'crowd.fs')
+        with open(fileNameCrowd, 'rb') as file:
             self.crowdData = bytearray(file.read())
 
         # Split crowd files
         self.crowdFiles = {}
         self.separateCrowd()
-        self.dumpSpreadsheet = all([f.dumpSpreadsheet for f in self.crowdFiles.values() if '.fscache' not in f.fileName])
+        self.dumpSpreadsheet = all([f.dumpSpreadsheet for f in self.crowdFiles.values()])
         self.crowdSpecs = {}
         for key, value in self.crowdFiles.items():
             self.crowdSpecs.update(value.fileContents())
         self.sheetName = os.path.join(path, 'crowd.xlsx')
 
-    def dump(self):
+    def dumpCrowd(self):
         # Rebuild index and crowd data
         self.joinCrowd()
         # Dump index
@@ -279,7 +511,7 @@ class CROWD:
         if not os.path.isdir(self.path):
             os.makedirs(self.path)
         for fileName, data in self.crowdFiles.items():
-            fileOut = os.path.join(self.path, fileName)
+            fileOut = os.path.join(self.pathOut, fileName)
             with open(fileOut, 'wb') as file:
                 file.write(data.getData())
 
@@ -291,6 +523,7 @@ class CROWD:
             size = self.indexFile.readInt32()
             self.indexFile.data.seek(4, 1)
             fileName = os.path.join(self.path, self.indexFile.readStringUTF8())
+            fileName = os.path.relpath(fileName, self.pathOut)
             data = self.crowdData[base:base+size]
             self.crowdFiles[fileName] = DATAFILE(fileName, data)
             # Done with file?
@@ -349,20 +582,22 @@ class CROWD:
         # Do this here to include 'fscache'
         columnIDs = {file:{'commands':[], 'text':[]} for file in self.crowdFiles}
         wb = xlwt.Workbook()
+        sheetNames = {}
         for file in self.crowdFiles:
-            if '.fscache' in file:
-                continue
-
             basename = os.path.basename(file)
             print(f'   building {file}')
 
             x = basename.replace('_', ' ')
             if len(x) > 31:
                 x = x[:31]
-            self.crowdSpecs[file]['sheetname'] = x
+            # self.crowdSpecs[file]['sheetname'] = x
+            sheetNames[x] = os.path.basename(file)
             
             wb.add_sheet(x)
             sheet = wb.get_sheet(x)
+            if x == '.fscache': # EMPTY FILES
+                assert self.crowdFiles[file].data.getbuffer().tobytes() == b''
+                continue
 
             data = self.crowdFiles[file]
             numCols = int(data.stride / 4)
@@ -429,16 +664,18 @@ class CROWD:
 
         wb.save(self.sheetName)
         print('   Done!')
+        return sheetNames
 
 
 class TABLE(CROWD):
-    def __init__(self, fileName):
+    def __init__(self, fileName, pathOut):
         self.path = os.path.dirname(fileName)
         self.fileName = fileName
         self.baseName = os.path.basename(fileName)
         with open(self.fileName, 'rb') as file:
             self.tableData = bytearray(file.read())
-        self.crowdFiles = {self.fileName: DATAFILE(self.fileName, self.tableData)}
+        fileName = os.path.relpath(self.fileName, pathOut)
+        self.crowdFiles = {fileName: DATAFILE(fileName, self.tableData)}
         self.dumpSpreadsheet = all([f.dumpSpreadsheet for f in self.crowdFiles.values()])
         self.crowdSpecs = {}
         for key, value in self.crowdFiles.items():
