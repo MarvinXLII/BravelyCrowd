@@ -176,7 +176,7 @@ class UNPACK(ROM):
                         sheetNames.update(table.dumpSheet())
                     except:
                         print(f'removing {checkName}')
-                        # os.remove(checkName)
+                        os.remove(checkName)
                         table.dumpSheet()
                         sys.exit()
 

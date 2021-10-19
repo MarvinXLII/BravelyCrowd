@@ -154,8 +154,8 @@ class DATAFILE(FILE):
                 strings.append(s.decode('utf-8')[:-1])
             except:
                 print('exception for ', s)
-                strings.append(s[:-1].decode('utf-16'))
-                # strings.append(list(map(chr, s)))
+                strings.append('0x' + s.hex())
+                # strings.append(s[:-1].decode('utf-16'))
             sizes.append(self.data.tell() - self.comBase)
         assert sizes.pop() == self.comSize
         return strings, sizes
@@ -291,11 +291,10 @@ class CROWDFILES:
     def _joinCrowd(self):
         indexFile = os.path.join(self.root, 'index.fs')
         crowdFile = os.path.join(self.root, 'crowd.fs')
-        pathIn = '/mnt/pismire/Games/BravelyCrowd/romfs_unpacked_BS'
-        with open(os.path.join(pathIn, self.root, 'index.fs'), 'rb') as file:
+        with open(os.path.join(self.root, 'index.fs'), 'rb') as file:
             indexOrig = file.read()
             indexOrigSHA = hashlib.sha1(indexOrig).hexdigest()
-        with open(os.path.join(pathIn, self.root, 'crowd.fs'), 'rb') as file:
+        with open(os.path.join(self.root, 'crowd.fs'), 'rb') as file:
             crowdOrig = file.read()
             crowdOrigSHA = hashlib.sha1(crowdOrig).hexdigest()
 
@@ -384,10 +383,12 @@ class CROWDSHEET(CROWDFILES):
                 text[i][j] = text[i][j].encode('utf-16')[2:] + b'\x00\x00'
         for i in range(nComCols):
             for j in range(nrows):
-                s = commands[i][j].encode('utf-8')
-                if any([si & 0x80 for si in s]):
-                    s = commands[i][j].encode('utf-16')[2:]
-                commands[i][j] = s + b'\x00'
+                if commands[i][j][:2] == '0x':
+                    commands[i][j] = bytes.fromhex(commands[i][j][2:])
+                else:
+                    s = commands[i][j].encode('utf-8')
+                    assert not any([si & 0x80 for si in s])
+                    commands[i][j] = s + b'\x00'
 
         # Get size lists
         def getSizeList(lst):
