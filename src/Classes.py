@@ -243,15 +243,11 @@ class DATAFILE(FILE):
         return strings
 
 class CROWDFILES:
-    def __init__(self, root, fileList, specs):
+    def __init__(self, root, crowds, specs):
         self.root = root
         self.specs = specs
+        self.fileList = crowds[root]
         self.data = {}
-        for fileName in fileList:
-            fileName = os.path.join(root, fileName)
-            assert os.path.isfile(fileName), f"File {fileName} belonging to crowd in directory {root} doesn't exist!"
-            with open(fileName, 'rb') as file:
-                self.data[fileName] = file.read()
 
     # Checks if any file in the crowd is modified
     def isModified(self):
@@ -260,6 +256,20 @@ class CROWDFILES:
             if sha != self.specs[name]['sha']:
                 return True
         return False
+
+    def allFilesExist(self):
+        for fileName in self.fileList:
+            fileName = os.path.join(self.root, fileName)
+            if not os.path.isfile(fileName):
+                print(f'Missing {fileName}')
+                return False
+        return True
+
+    def loadData(self):
+        for fileName in self.fileList:
+            fileName = os.path.join(self.root, fileName)
+            with open(fileName, 'rb') as file:
+                self.data[fileName] = file.read()
 
     def dumpCrowd(self, pathOut):
         index, crowd = self._joinCrowd()
@@ -462,10 +472,10 @@ class CROWDSHEET(CROWDFILES):
         fileData += self.toBytes(count)
         fileData += bytearray([0]*8)
         assert len(fileData) == base
-        for i, d in enumerate(dataBytes):
-            fileData.append(d)
-            assert fileData == origData[:len(fileData)], i
-        # fileData += dataBytes
+        # for i, d in enumerate(dataBytes):
+        #     fileData.append(d)
+        #     assert fileData == origData[:len(fileData)], i
+        fileData += dataBytes
         assert len(fileData) == comBase
         fileData += commandBytes
         assert len(fileData) == textBase

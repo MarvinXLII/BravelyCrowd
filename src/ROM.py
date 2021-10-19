@@ -3,7 +3,6 @@ from Classes import CROWD, TABLE, CROWDSHEET, CROWDFILES, TABLESHEET
 import os
 import shutil
 import sys
-# from Spreadsheets import XLSX
 import pickle
 import hashlib
 
@@ -13,7 +12,7 @@ class ROM:
         self.game = settings['game']
         self.pathIn = self.settings['rom']
         if os.path.isdir(self.pathOut):
-            return
+            return #### MUST REMOVE TO ENSURE PICKLE GETS UPDATED WITH ALL THE FILES!
             shutil.rmtree(self.pathOut)
         os.mkdir(self.pathOut)
 
@@ -31,7 +30,6 @@ class ROM:
         shutil.copy(src, dest)
         return CROWD(dest, self.pathOut)
 
-    # Not sure why I did all these copies?
     def loadTable(self, fileName):
         src = os.path.join(self.pathIn, fileName)
         dest = os.path.join(self.pathOut, fileName)
@@ -49,16 +47,6 @@ class ROM:
             os.makedirs(base)
         shutil.copy(src, dest)
 
-    # def dumpSpreadsheet(self, fileName):
-    #     src = os.path.join(self.pathIn, fileName)
-    #     dest = os.path.join(self.pathOut, fileName)
-    #     base = os.path.dirname(dest)
-    #     if not os.path.isdir(base):
-    #         os.makedirs(base)
-    #     sheet = XLSX(src)
-    #     sheet.loadData()
-    #     sheet.dumpSheet(dest)
-
 
 class PACK(ROM):
     def __init__(self, settings):
@@ -73,69 +61,56 @@ class PACK(ROM):
             sheetNames = pickle.load(file)
 
         for root, dirs, files in os.walk('.'):
-            # NEVER CONSIDER THE PICKLE FILE!
-            files = list(filter(lambda f: '.pickle' not in f, files))
-            # # SKIP XLSX FOR NOW!
-            # files = list(filter(lambda f: '.xlsx' not in f, files))
-            # First load crowd using index
             root = root[2:]
+            spreadsheets = list(filter(lambda f: '.xlsx' in f, files))
+            bytefiles = list(filter(lambda f: '.xlsx' not in f, files))
+            if 'data.pickle' in bytefiles:
+                bytefiles.remove('data.pickle')
             if root in crowdFiles:
-                ## LOOP OVER FILES IN THE CROWD AND SEE IF ANY HAVE BEEN MODIFIED
-                ## IF SO, BUILD AND DUMP CROWD AND INDEX FILES
-                ## IF NOT, SKIP
-                ## EITHER WAY, FILTER FILES LIST
-
-                if root == 'Common_ko/Shop':
-                    print('here')
-                # IF SPREADHSEET EXISTS, CHECK SPREADSHEET FIRST
-                # IF ANY SHEETS ARE MODIFIED, REBUILD AND DUMP INDEX AND CROWD FROM THE SHEETS
-                if 'crowd.xlsx' in files:
-                    fileName = os.path.join(root, 'crowd.xlsx')
-                    print(fileName)
+                # Give priority to spreadsheets
+                if 'crowd.xlsx' in spreadsheets:
+                    print(os.path.join(root, 'crowd.xlsx'))
                     crowd = CROWDSHEET(root, crowdSpecs, sheetNames)
-                else:
+                    spreadsheets.remove('crowd.xlsx')
+                    if crowd.isModified():
+                        crowd.dumpCrowd(pathOut)
+                        if 'crowd.fs' in bytefiles:
+                            bytefiles.remove('crowd.fs')
+                        if 'index.fs' in bytefiles:
+                            bytefiles.remove('index.fs')
+
+                # Consider crowd tables if spreadsheets are unmodified
+                if 'crowd.fs' in bytefiles:
                     print(os.path.join(root, 'crowd.fs'))
-                    crowd = CROWDFILES(root, crowdFiles[root], crowdSpecs)
-                # if crowd.isModified():
-                #     crowd.dumpCrowd(pathOut)
-                crowd.dumpCrowd(self.pathOut)
-                # Copy over remaining files
-                files = list(filter(lambda x: x not in crowdFiles[root], files))
-                if 'crowd.xlsx' in files:
-                    files.remove('crowd.xlsx')
-                if 'crowd.fs' in files:
-                    files.remove('crowd.fs')
-                if 'index.fs' in files:
-                    files.remove('index.fs')
+                    crowd = CROWDFILES(root, crowdFiles, crowdSpecs)
+                    if crowd.allFilesExist():
+                        crowd.loadData()
+                        if crowd.isModified():
+                            crowd.dumpCrowd(pathOut)
+                    bytefiles.remove('crowd.fs')
+                    if 'index.fs' in bytefiles:
+                        bytefiles.remove('index.fs')
+                    bytefiles = list(filter(lambda x: x not in crowdFiles[root], bytefiles))
 
             # Check table spreadsheets
-            sheets = list(filter(lambda x: '.xlsx' in x, files))
-            for sheet in sheets:
+            for sheet in spreadsheets:
                 fileName = os.path.join(root, sheet)
                 print(fileName)
-                if fileName == 'Common_ko/Parameter/Item/ItemTable.xlsx':
-                    print('here')
-                if fileName == 'Common_ko/TutorialTable/TutorialJob_Data.xlsx':
-                    print('here')
                 table = TABLESHEET(root, sheet, crowdSpecs, sheetNames)
                 if table.isModified():
                     table.dumpSheet(self.pathOut)
-                    name = table.getFileName() # Gives modified spreadsheet priority over individual file.
-                    files.remove(name)
-                # table.dumpTable(self.pathOut)
-                files.remove(sheet)
-                ### CLEAN THIS UP WITH SHEEETNAMES?
-                
-            # Copy over the remaining files
-            for file in files:
-                fileName = os.path.join(root, file)
+                    name = table.getFileName()
+                    bytefiles.remove(name)
+
+            # Copy over any remaining modified files
+            for fileName in bytefiles:
+                fileName = os.path.join(root, fileName)
                 print(fileName)
                 with open(fileName, 'rb') as file:
                     data = file.read()
                 sha = hashlib.sha1(data).hexdigest()
-                # if sha != crowdSpecs[fileName]['sha']: # ONLY COPY IF MODIFIED
-                #     self.copyFile(fileName)
-                self.copyFile(fileName)
+                if sha != crowdSpecs[fileName]['sha']:
+                    self.copyFile(fileName)
 
         os.chdir(dir)
 
@@ -151,10 +126,6 @@ class UNPACK(ROM):
         sheetNames = {}
         for root, dirs, files in os.walk('.'):
             root = root[2:]
-            # if 'Graphics/' in root:
-            #     continue
-            # if 'Sound/' in root:
-            #     continue
             for file in files:
                 if file == 'index.fs':
                     continue
