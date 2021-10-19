@@ -62,18 +62,18 @@ class PACK(ROM):
 
         for root, dirs, files in os.walk('.'):
             root = root[2:]
-            spreadsheets = list(filter(lambda f: '.xlsx' in f, files))
-            bytefiles = list(filter(lambda f: '.xlsx' not in f, files))
+            spreadsheets = list(filter(lambda f: '.xls' in f, files))
+            bytefiles = list(filter(lambda f: '.xls' not in f, files))
             if 'data.pickle' in bytefiles:
                 bytefiles.remove('data.pickle')
             if root in crowdFiles:
                 # Give priority to spreadsheets
-                if 'crowd.xlsx' in spreadsheets:
-                    print(os.path.join(root, 'crowd.xlsx'))
+                if 'crowd.xls' in spreadsheets:
+                    print(os.path.join(root, 'crowd.xls'))
                     crowd = CROWDSHEET(root, crowdSpecs, sheetNames)
-                    spreadsheets.remove('crowd.xlsx')
+                    spreadsheets.remove('crowd.xls')
                     if crowd.isModified():
-                        crowd.dumpCrowd(pathOut)
+                        crowd.dumpCrowd(self.pathOut)
                         if 'crowd.fs' in bytefiles:
                             bytefiles.remove('crowd.fs')
                         if 'index.fs' in bytefiles:
@@ -86,7 +86,7 @@ class PACK(ROM):
                     if crowd.allFilesExist():
                         crowd.loadData()
                         if crowd.isModified():
-                            crowd.dumpCrowd(pathOut)
+                            crowd.dumpCrowd(self.pathOut)
                     bytefiles.remove('crowd.fs')
                     if 'index.fs' in bytefiles:
                         bytefiles.remove('index.fs')

@@ -299,14 +299,14 @@ class CROWDFILES:
         return data
 
     def _joinCrowd(self):
-        indexFile = os.path.join(self.root, 'index.fs')
-        crowdFile = os.path.join(self.root, 'crowd.fs')
-        with open(os.path.join(self.root, 'index.fs'), 'rb') as file:
-            indexOrig = file.read()
-            indexOrigSHA = hashlib.sha1(indexOrig).hexdigest()
-        with open(os.path.join(self.root, 'crowd.fs'), 'rb') as file:
-            crowdOrig = file.read()
-            crowdOrigSHA = hashlib.sha1(crowdOrig).hexdigest()
+        # indexFile = os.path.join(self.root, 'index.fs')
+        # crowdFile = os.path.join(self.root, 'crowd.fs')
+        # with open(os.path.join(self.root, 'index.fs'), 'rb') as file:
+        #     indexOrig = file.read()
+        #     indexOrigSHA = hashlib.sha1(indexOrig).hexdigest()
+        # with open(os.path.join(self.root, 'crowd.fs'), 'rb') as file:
+        #     crowdOrig = file.read()
+        #     crowdOrigSHA = hashlib.sha1(crowdOrig).hexdigest()
 
         index = bytearray([])
         crowd = bytearray([])
@@ -330,16 +330,16 @@ class CROWDFILES:
             crowd += data
             crowd = self._adjustSize(crowd)
 
-            assert index == indexOrig[:len(index)]
-            assert crowd == crowdOrig[:len(crowd)]
+            # assert index == indexOrig[:len(index)]
+            # assert crowd == crowdOrig[:len(crowd)]
         # Finalize crowdData (actually necessary sometimes!)
         crowd = self._adjustSize(crowd)
 
-        indexSHA = hashlib.sha1(index).hexdigest()
-        crowdSHA = hashlib.sha1(crowd).hexdigest()
+        # indexSHA = hashlib.sha1(index).hexdigest()
+        # crowdSHA = hashlib.sha1(crowd).hexdigest()
         
-        assert indexSHA == indexOrigSHA
-        assert crowdSHA == crowdOrigSHA
+        # assert indexSHA == indexOrigSHA
+        # assert crowdSHA == crowdOrigSHA
         return index, crowd
 
 
@@ -348,7 +348,7 @@ class CROWDSHEET(CROWDFILES):
         self.root = root
         self.specs = specs
         self.sheetToFile = sheetToFile
-        fileName = os.path.join(root, 'crowd.xlsx')
+        fileName = os.path.join(root, 'crowd.xls')
         # assert self.specs[fileName]['spreadsheet']
         self.spreadsheet = xlrd.open_workbook(fileName)
         self.data = {}
@@ -357,8 +357,8 @@ class CROWDSHEET(CROWDFILES):
                 origData = file.read()
             sheetName = os.path.join(root, self.sheetToFile[sheet.name])
             self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
-            sha = hashlib.sha1(self.data[sheetName]).hexdigest()
-            assert sha == self.specs[sheetName]['sha'], f"{root}/{sheet.name}"
+            # sha = hashlib.sha1(self.data[sheetName]).hexdigest()
+            # assert sha == self.specs[sheetName]['sha'], f"{root}/{sheet.name}"
 
     def toBytes(self, i):
         return i.to_bytes(4, byteorder='little', signed=True)
@@ -535,7 +535,7 @@ class CROWD:
         self.crowdSpecs = {}
         for key, value in self.crowdFiles.items():
             self.crowdSpecs.update(value.fileContents())
-        self.sheetName = os.path.join(path, 'crowd.xlsx')
+        self.sheetName = os.path.join(path, 'crowd.xls')
 
     def dumpCrowd(self):
         # Rebuild index and crowd data
@@ -722,8 +722,8 @@ class TABLE(CROWD):
         self.crowdSpecs = {}
         for key, value in self.crowdFiles.items():
             self.crowdSpecs.update(value.fileContents())
-        pre, _ = os.path.splitext(fileName)
-        self.sheetName = f"{pre}.xlsx"
+        pre, _ = os.path.splitext(self.fileName)
+        self.sheetName = f"{pre}.xls"
 
     def dump(self):
         with open(self.fileName, 'wb') as file:
