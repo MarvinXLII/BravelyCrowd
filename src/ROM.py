@@ -1,5 +1,5 @@
 # from Classes import CROWD, CROWD_BD
-from Classes import CROWD, TABLE, CROWDSHEET, CROWDFILES, TABLESHEET
+from Classes import CROWD, TABLE, CROWDFILES, TABLEFILE
 import os
 import shutil
 import sys
@@ -66,51 +66,32 @@ class PACK(ROM):
             bytefiles = list(filter(lambda f: '.xls' not in f, files))
             if 'data.pickle' in bytefiles:
                 bytefiles.remove('data.pickle')
+
             if root in crowdFiles:
-                # Give priority to spreadsheets
+                crowd = CROWDFILES(root, crowdFiles, crowdSpecs, sheetNames)
+                crowd.loadData()
+                crowd.dump(self.pathOut)
                 if 'crowd.xls' in spreadsheets:
-                    print(os.path.join(root, 'crowd.xls'))
-                    crowd = CROWDSHEET(root, crowdSpecs, sheetNames)
                     spreadsheets.remove('crowd.xls')
-                    if crowd.isModified():
-                        crowd.dumpCrowd(self.pathOut)
-                        if 'crowd.fs' in bytefiles:
-                            bytefiles.remove('crowd.fs')
-                        if 'index.fs' in bytefiles:
-                            bytefiles.remove('index.fs')
-
-                # Consider crowd tables if spreadsheets are unmodified
                 if 'crowd.fs' in bytefiles:
-                    print(os.path.join(root, 'crowd.fs'))
-                    crowd = CROWDFILES(root, crowdFiles, crowdSpecs)
-                    if crowd.allFilesExist():
-                        crowd.loadData()
-                        if crowd.isModified():
-                            crowd.dumpCrowd(self.pathOut)
                     bytefiles.remove('crowd.fs')
-                    if 'index.fs' in bytefiles:
-                        bytefiles.remove('index.fs')
-                    bytefiles = list(filter(lambda x: x not in crowdFiles[root], bytefiles))
+                if 'index.fs' in bytefiles:
+                    bytefiles.remove('index.fs')
+                bytefiles = list(filter(lambda x: x not in crowdFiles[root], bytefiles))
 
-            # Check table spreadsheets
             for sheet in spreadsheets:
-                fileName = os.path.join(root, sheet)
-                print(fileName)
-                table = TABLESHEET(root, sheet, crowdSpecs, sheetNames)
-                if table.isModified():
-                    table.dumpSheet(self.pathOut)
+                table = TABLEFILE(root, sheet, crowdSpecs, sheetNames)
+                table.loadData()
+                if table.isModified:
+                    table.dump(self.pathOut)
                     name = table.getFileName()
-                    bytefiles.remove(name)
+                    if name in bytefiles:
+                        bytefiles.remove(name)
 
-            # Copy over any remaining modified files
             for fileName in bytefiles:
-                fileName = os.path.join(root, fileName)
-                print(fileName)
-                with open(fileName, 'rb') as file:
-                    data = file.read()
-                sha = hashlib.sha1(data).hexdigest()
-                if sha != crowdSpecs[fileName]['sha']:
-                    self.copyFile(fileName)
+                table = TABLEFILE(root, fileName, crowdSpecs, sheetNames)
+                table.loadData()
+                table.dump(self.pathOut)
 
         os.chdir(dir)
 

@@ -7,7 +7,7 @@ import math
 import struct
 import hashlib
 from io import BytesIO
-import pudb; pu.db
+# import pudb; pu.db
 
 class FILE:
     def __init__(self, data):
@@ -120,29 +120,6 @@ class DATAFILE(FILE):
             }
         }
 
-    # def getComData(self, offsets):
-    #     if self.comSize == 0:
-    #         return []
-    #     strings = []
-    #     for start, end in zip(offsets[:-1], offsets[1:]):
-    #         self.data.seek(self.comBase + start)
-    #         s = self.data.read(end - start)
-    #         try:
-    #             strings.append(s.decode('utf-8')[:-1])
-    #         except:
-    #             strings.append(list(map(chr, s)))
-    #     return strings
-        
-    # def getTextData(self, offsets):
-    #     if self.textSize == 0:
-    #         return []
-    #     strings = []
-    #     for start, end in zip(offsets[:-1], offsets[1:]):
-    #         self.data.seek(self.textBase + start)
-    #         s = self.data.read(end - start)
-    #         strings.append(s.decode('utf-16')[:-1])
-    #     return strings
-
     def readAllComData(self):
         self.data.seek(self.comBase)
         strings = []; sizes = [0]
@@ -173,34 +150,6 @@ class DATAFILE(FILE):
         assert sizes.pop() == self.textSize
         return strings, sizes
         
-    # # Data tables can only be updated under certain circumstances.
-    # # Assumes all columns have the same byte size (currently 4)
-    # # Assumes no text.
-    # # Now, only use for Shops and Ability tables
-    # def updateData(self, *cols):
-    #     # Ensure no text
-    #     assert self.comSize == 0
-    #     assert self.textSize == 0
-    #     # Update data
-    #     data = bytearray([])
-    #     numEntries = 0
-    #     for row in zip(*cols):
-    #         for ri in row:
-    #             data += ri.to_bytes(4, byteorder='little', signed=True)
-    #         numEntries += 1
-    #     lenData = len(data).to_bytes(4, byteorder='little', signed=True)
-    #     fileSize = int(len(data)+0x30).to_bytes(4, byteorder='little', signed=True)
-    #     header = bytearray(b'BTBF')
-    #     header += fileSize
-    #     header += int(0x30).to_bytes(4, byteorder='little', signed=True)
-    #     header += lenData
-    #     header += fileSize + bytearray([0]*4)
-    #     header += fileSize + bytearray([0]*4)
-    #     header += int(8).to_bytes(4, byteorder='little', signed=True)
-    #     header += numEntries.to_bytes(4, byteorder='little', signed=True)
-    #     header += bytearray([0]*8)
-    #     self.data = header + data
-
     def readCol(self, col, row=0, numRows=None):
         if not numRows:
             numRows = self.count
@@ -225,53 +174,71 @@ class DATAFILE(FILE):
         self.data.seek(address)
         return self.readInt32()
 
-    def readComString(self, row, col):
-        offset = self.readValue(row, col)
-        self.data.seek(self.comBase + offset)
-        return self.readStringUTF8()
-
-    def readTextString(self, row, col):
-        offset = self.readValue(row, col)
-        self.data.seek(self.textBase + offset)
-        return self.readStringUTF16()
-
-    def readTextStringAll(self, col):
-        strings = []
-        for row in range(self.count):
-            string = self.readTextString(row, col)
-            strings.append(string)
-        return strings
 
 class CROWDFILES:
-    def __init__(self, root, crowds, specs):
+    def __init__(self, root, crowds, specs, sheetToFile):
         self.root = root
         self.specs = specs
         self.fileList = crowds[root]
+        self.sheetToFile = sheetToFile
         self.data = {}
+        self._isModified = False
 
     # Checks if any file in the crowd is modified
+    @property
     def isModified(self):
+        if self._isModified:
+            return True
         for name, data in self.data.items():
             sha = hashlib.sha1(data).hexdigest()
             if sha != self.specs[name]['sha']:
+                self._isModified = True
                 return True
         return False
 
-    def allFilesExist(self):
-        for fileName in self.fileList:
+    def loadData(self):
+        # Try spreadsheet first
+        sheetName = os.path.join(self.root, 'crowd.xls')
+        self._loadSheet('crowd.xls')
+
+        # Try tables if sheets are unedited/don't exist
+        if not self.isModified:
+            self._loadTables(self.fileList)
+
+    def _allFilesExist(self, fileList):
+        for fileName in fileList:
             fileName = os.path.join(self.root, fileName)
             if not os.path.isfile(fileName):
                 print(f'Missing {fileName}')
                 return False
         return True
 
-    def loadData(self):
-        for fileName in self.fileList:
-            fileName = os.path.join(self.root, fileName)
-            with open(fileName, 'rb') as file:
-                self.data[fileName] = file.read()
+    def _loadSheet(self, fileName):
+        self.data = {}
+        fileName = os.path.join(self.root, fileName)
+        if os.path.isfile(fileName):
+            self.spreadsheet = xlrd.open_workbook(fileName)
+            for sheet in self.spreadsheet.sheets():
+                with open(os.path.join(self.root, self.sheetToFile[sheet.name]), 'rb') as file:
+                    origData = file.read()
+                sheetName = os.path.join(self.root, self.sheetToFile[sheet.name])
+                self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
+                sha = hashlib.sha1(self.data[sheetName]).hexdigest()
+                assert sha == self.specs[sheetName]['sha'], f"{self.root}/{sheet.name}"
 
-    def dumpCrowd(self, pathOut):
+    def _loadTables(self, fileList):
+        self.data = {}
+        if self._allFilesExist(fileList):
+            for fileName in fileList:
+                fileName = os.path.join(self.root, fileName)
+                with open(fileName, 'rb') as file:
+                    self.data[fileName] = file.read()
+
+    def dump(self, pathOut):
+        if not self.isModified:
+            print(f'{self.root}: No modified crowd data to dump!')
+            return
+
         index, crowd = self._joinCrowd()
         path = os.path.join(pathOut, self.root)
         if not os.path.isdir(path):
@@ -284,6 +251,7 @@ class CROWDFILES:
             file.write(crowd)
 
     def _getData(self, fileName):
+        assert self.isModified
         data = self.data[fileName]
         if self.specs[fileName]['compressed']:
             size = len(data)
@@ -299,15 +267,6 @@ class CROWDFILES:
         return data
 
     def _joinCrowd(self):
-        # indexFile = os.path.join(self.root, 'index.fs')
-        # crowdFile = os.path.join(self.root, 'crowd.fs')
-        # with open(os.path.join(self.root, 'index.fs'), 'rb') as file:
-        #     indexOrig = file.read()
-        #     indexOrigSHA = hashlib.sha1(indexOrig).hexdigest()
-        # with open(os.path.join(self.root, 'crowd.fs'), 'rb') as file:
-        #     crowdOrig = file.read()
-        #     crowdOrigSHA = hashlib.sha1(crowdOrig).hexdigest()
-
         index = bytearray([])
         crowd = bytearray([])
         for i, fileName in enumerate(self.data):
@@ -329,36 +288,9 @@ class CROWDFILES:
             # Append crowd file
             crowd += data
             crowd = self._adjustSize(crowd)
-
-            # assert index == indexOrig[:len(index)]
-            # assert crowd == crowdOrig[:len(crowd)]
         # Finalize crowdData (actually necessary sometimes!)
         crowd = self._adjustSize(crowd)
-
-        # indexSHA = hashlib.sha1(index).hexdigest()
-        # crowdSHA = hashlib.sha1(crowd).hexdigest()
-        
-        # assert indexSHA == indexOrigSHA
-        # assert crowdSHA == crowdOrigSHA
         return index, crowd
-
-
-class CROWDSHEET(CROWDFILES):
-    def __init__(self, root, specs, sheetToFile):
-        self.root = root
-        self.specs = specs
-        self.sheetToFile = sheetToFile
-        fileName = os.path.join(root, 'crowd.xls')
-        # assert self.specs[fileName]['spreadsheet']
-        self.spreadsheet = xlrd.open_workbook(fileName)
-        self.data = {}
-        for sheet in self.spreadsheet.sheets():
-            with open(os.path.join(root, self.sheetToFile[sheet.name]), 'rb') as file:
-                origData = file.read()
-            sheetName = os.path.join(root, self.sheetToFile[sheet.name])
-            self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
-            # sha = hashlib.sha1(self.data[sheetName]).hexdigest()
-            # assert sha == self.specs[sheetName]['sha'], f"{root}/{sheet.name}"
 
     def toBytes(self, i):
         return i.to_bytes(4, byteorder='little', signed=True)
@@ -368,7 +300,6 @@ class CROWDSHEET(CROWDFILES):
             return b''
         nrows = sheet.nrows - 1
         ncols = sheet.ncols
-        # name = os.path.join(self.root, sheet.name)
         assert self.specs[name]['spreadsheet']
         textCols = self.specs[name]['textColumns']
         nTextCols = len(textCols)
@@ -416,20 +347,15 @@ class CROWDSHEET(CROWDFILES):
         commandSizes = getSizeList(commands)
         # Update appropriate data columns for any modifications to text and commands
         for sizes, colIndex in zip(textSizes, textCols):
-            assert sizes == data[colIndex] # TEMPORARY
-            # data[colIndex] = sizes # KEEP
+            data[colIndex] = sizes
         for sizes, colIndex in zip(commandSizes, comCols):
-            assert sizes == data[colIndex] # TEMPORARY
-            # data[colIndex] = sizes # KEEP
+            data[colIndex] = sizes
         # Join commands, text, and data into bytearrays
         def getByteArray(lst):
             x = bytearray()
             for i in range(nrows):
                 for lj in lst:
                     x += lj[i]
-            # for li in lst:
-            #     for lj in li:
-            #         x += lj
             return x
         def getByteArrayInt(lst):
             x = bytearray()
@@ -471,40 +397,42 @@ class CROWDSHEET(CROWDFILES):
         fileData += self.toBytes(stride)
         fileData += self.toBytes(count)
         fileData += bytearray([0]*8)
-        assert len(fileData) == base
-        # for i, d in enumerate(dataBytes):
-        #     fileData.append(d)
-        #     assert fileData == origData[:len(fileData)], i
         fileData += dataBytes
-        assert len(fileData) == comBase
         fileData += commandBytes
-        assert len(fileData) == textBase
         fileData += textBytes
-        assert len(fileData) == fileSize
         return fileData
 
-class TABLESHEET(CROWDSHEET):
+
+class TABLEFILE(CROWDFILES):
     def __init__(self, root, fileName, specs, sheetToFile):
         self.root = root
-        self.fileName = os.path.join(root, fileName)
+        self.fileName = fileName
         self.specs = specs
         self.sheetToFile = sheetToFile
-        self.spreadsheet = xlrd.open_workbook(self.fileName)
         self.data = {}
-        for sheet in self.spreadsheet.sheets():
-            with open(os.path.join(root, self.sheetToFile[sheet.name]), 'rb') as file:
-                origData = file.read()
-            sheetName = os.path.join(root, self.sheetToFile[sheet.name])
-            self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
-            sha = hashlib.sha1(self.data[sheetName]).hexdigest()
-            assert sha == self.specs[sheetName]['sha'], f"{root}/{sheet.name}"
+        self._isModified = False
+ 
+    def loadData(self):
+        assert not self.data, "DATA ALREADY LOADED!"
+        _, ext = os.path.splitext(self.fileName)
+        if ext == '.xls':
+            self._loadSheet(self.fileName)
+        else:
+            self._loadTables([self.fileName])
+        assert len(self.data) <= 1, "ONLY ONE ENTRY OF DATA ALLOWED!"
 
-    def dumpTable(self, path):
-        directory = os.path.join(path, self.root)
+    def dump(self, pathOut):
+        if not self.isModified:
+            print(f"{self.root}: No modified table data to dump!")
+            return
+
+        directory = os.path.join(pathOut, self.root)
         if not os.path.isdir(directory):
             os.makedirs(directory)
-        for name, data in self.data.items(): # name = root + file
-            fileName = os.path.join(path, name)
+        assert len(self.data) == 1, "ONLY ONE TABLE ENTRY IS ALLOWED!"
+        for fileName, data in self.data.items(): # fileName = root + file
+            assert not self.specs[fileName]['compressed'], "NEED TO CALL _getData WHEN DUMPING INDIVIDUAL TABLES"
+            fileName = os.path.join(pathOut, fileName)
             with open(fileName, 'wb') as file:
                 file.write(data)
 
@@ -606,15 +534,6 @@ class CROWD:
         # Finalize crowdData (actually necessary sometimes!)
         self.crowdData = self.adjustSize(self.crowdData)
 
-    # def getData(self, fileName):
-    #     data = self.crowdFiles[fileName].data
-    #     if self.isCompressed[fileName]:
-    #         size = len(data)
-    #         data = zlib.compress(data)[2:-4]
-    #         header = int((size << 8) + 0x60).to_bytes(4, byteorder='little')
-    #         data = header + data
-    #     return data
-
     def dumpSheet(self):
         for filename, data in self.crowdFiles.items():
             if '.fscache' in filename:
@@ -632,7 +551,6 @@ class CROWD:
             x = basename.replace('_', ' ')
             if len(x) > 31:
                 x = x[:31]
-            # self.crowdSpecs[file]['sheetname'] = x
             sheetNames[x] = os.path.basename(file)
             
             wb.add_sheet(x)
@@ -644,9 +562,6 @@ class CROWD:
             data = self.crowdFiles[file]
             numCols = int(data.stride / 4)
             numRows = data.count
-
-            def mono_increase(col):
-                return all(map(lambda x, y: x < y, col[:-1], col[1:]))
 
             # READ ALL COLUMNS
             columns = []
