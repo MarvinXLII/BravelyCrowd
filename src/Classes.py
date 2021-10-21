@@ -229,8 +229,8 @@ class CROWDFILES:
             for sheet in self.spreadsheet.sheets():
                 sheetName = os.path.join(self.root, self.sheetToFile[sheet.name])
                 self.data[sheetName] = self.getDataFromSheet(sheet, sheetName)
-                sha = hashlib.sha1(self.data[sheetName]).hexdigest()
-                assert sha == self.specs[sheetName]['sha'], f"{self.root}/{sheet.name}"
+                # sha = hashlib.sha1(self.data[sheetName]).hexdigest()
+                # assert sha == self.specs[sheetName]['sha'], f"{self.root}/{sheet.name}"
 
     def _loadTables(self, fileList):
         self.data = {}
