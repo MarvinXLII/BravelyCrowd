@@ -183,18 +183,26 @@ class CROWDFILES:
         self.sheetToFile = sheetToFile
         self.data = {}
         self._isModified = False
+        self._moddedFiles = []
 
     # Checks if any file in the crowd is modified
     @property
     def isModified(self):
         if self._isModified:
             return True
+        self._moddedFiles = []
         for name, data in self.data.items():
             sha = hashlib.sha1(data).hexdigest()
             if sha != self.specs[name]['sha']:
                 self._isModified = True
-                return True
-        return False
+                self._moddedFiles.append(name)
+        return self._isModified
+
+    @property
+    def moddedFiles(self):
+        if not self.isModified:
+            self._moddedFiles = []
+        return self._moddedFiles
 
     def loadData(self):
         # Try spreadsheet first
@@ -219,10 +227,8 @@ class CROWDFILES:
         if os.path.isfile(fileName):
             self.spreadsheet = xlrd.open_workbook(fileName)
             for sheet in self.spreadsheet.sheets():
-                with open(os.path.join(self.root, self.sheetToFile[sheet.name]), 'rb') as file:
-                    origData = file.read()
                 sheetName = os.path.join(self.root, self.sheetToFile[sheet.name])
-                self.data[sheetName] = self.getDataFromSheet(sheet, origData, sheetName)
+                self.data[sheetName] = self.getDataFromSheet(sheet, sheetName)
                 sha = hashlib.sha1(self.data[sheetName]).hexdigest()
                 assert sha == self.specs[sheetName]['sha'], f"{self.root}/{sheet.name}"
 
@@ -295,7 +301,7 @@ class CROWDFILES:
     def toBytes(self, i):
         return i.to_bytes(4, byteorder='little', signed=True)
         
-    def getDataFromSheet(self, sheet, origData, name):
+    def getDataFromSheet(self, sheet, name):
         if '.fscache' in name:
             return b''
         nrows = sheet.nrows - 1
@@ -411,6 +417,7 @@ class TABLEFILE(CROWDFILES):
         self.sheetToFile = sheetToFile
         self.data = {}
         self._isModified = False
+        self._moddedFiles = []
  
     def loadData(self):
         assert not self.data, "DATA ALREADY LOADED!"

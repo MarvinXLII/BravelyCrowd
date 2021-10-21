@@ -12,9 +12,8 @@ class ROM:
         self.game = settings['game']
         self.pathIn = self.settings['rom']
         if os.path.isdir(self.pathOut):
-            return #### MUST REMOVE TO ENSURE PICKLE GETS UPDATED WITH ALL THE FILES!
             shutil.rmtree(self.pathOut)
-        os.mkdir(self.pathOut)
+        os.makedirs(self.pathOut)
 
     def fail(self):
         shutil.rmtree(self.pathOut)
@@ -50,16 +49,30 @@ class ROM:
 
 class PACK(ROM):
     def __init__(self, settings):
-        self.pathOut = os.path.join(os.getcwd(), f"romfs_packed")
+        dir = os.getcwd()
+
+        # Setup output paths and files
+        dirOut = os.path.join(dir, 'romfs_packed')
+        if os.path.isdir(dirOut):
+            shutil.rmtree(dirOut)
+        if settings['game'] == 'BD':
+            self.pathOut = os.path.join(dirOut, '00040000000FC500', 'romfs')
+            logFileName = os.path.join(dirOut, 'BD_mod.log')
+        elif settings['game'] == 'BS':
+            self.pathOut = os.path.join(dirOut, '000400000017BA00', 'romfs')
+            logFileName = os.path.join(dirOut, 'BS_mod.log')
+        else:
+            sys.exit(f"{settings['game']} is not allowed as the game setting!")
+
         super().__init__(settings)
 
-        dir = os.getcwd()
         os.chdir(self.pathIn)
         with open('data.pickle','rb') as file:
             crowdSpecs = pickle.load(file)
             crowdFiles = pickle.load(file)
             sheetNames = pickle.load(file)
 
+        moddedFiles = []
         for root, dirs, files in os.walk('.'):
             root = root[2:]
             spreadsheets = list(filter(lambda f: '.xls' in f, files))
@@ -71,6 +84,7 @@ class PACK(ROM):
                 crowd = CROWDFILES(root, crowdFiles, crowdSpecs, sheetNames)
                 crowd.loadData()
                 crowd.dump(self.pathOut)
+                moddedFiles += crowd.moddedFiles
                 if 'crowd.xls' in spreadsheets:
                     spreadsheets.remove('crowd.xls')
                 if 'crowd.fs' in bytefiles:
@@ -84,6 +98,7 @@ class PACK(ROM):
                 table.loadData()
                 if table.isModified:
                     table.dump(self.pathOut)
+                    moddedFiles += table.moddedFiles
                     name = table.getFileName()
                     if name in bytefiles:
                         bytefiles.remove(name)
@@ -95,12 +110,22 @@ class PACK(ROM):
 
         os.chdir(dir)
 
+        moddedFiles.sort()
+        with open(logFileName, 'w') as file:
+            if moddedFiles:
+                for m in moddedFiles:
+                    file.write(m)
+            else:
+                file.write('No modified files!')
+                shutil.rmtree(self.pathOut)
+                shutil.rmtree(self.pathOut[:-6])
+
 
 class UNPACK(ROM):
     def __init__(self, settings):
-        self.pathOut = os.path.join(os.getcwd(), f"romfs_unpacked")
-        super().__init__(settings)
         dir = os.getcwd()
+        self.pathOut = os.path.join(dir, f"romfs_unpacked")
+        super().__init__(settings)
         os.chdir(self.pathIn)
         crowdSpecs = {}
         crowdFiles = {}
@@ -119,7 +144,6 @@ class UNPACK(ROM):
                     table.dumpFiles(self.pathOut)
                 else:
                     table = self.loadTable(fileName)
-                self.copyFile(fileName) # COPY AFTER JUST IN CASE THERE IS AN ERROR!
 
                 print(fileName)
                 if table.dumpSpreadsheet:
@@ -129,8 +153,7 @@ class UNPACK(ROM):
                     except:
                         print(f'removing {checkName}')
                         os.remove(checkName)
-                        table.dumpSheet()
-                        sys.exit()
+                        sys.exit(f"Error dumping spreadsheet {fileName}")
 
                 crowdSpecs.update(table.crowdSpecs)
                 if file == 'crowd.fs':
@@ -140,6 +163,7 @@ class UNPACK(ROM):
                         baseNames.append(name)
                     crowdFiles.update({root: baseNames})
 
+        # Dump data needed for packing
         os.chdir(self.pathOut)
         with open('data.pickle','wb') as file:
             pickle.dump(crowdSpecs, file)
