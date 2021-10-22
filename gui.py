@@ -6,6 +6,8 @@ import hjson
 import os
 import shutil
 import hashlib
+import lzma
+import pickle
 import sys
 sys.path.append('src')
 from Utilities import get_filename
@@ -115,11 +117,41 @@ class GuiApplication:
             if 'romfs' in dir or 'RomFS' in dir:
                 path = os.path.join(path, dir)
                 self.settings['rom'].set(path)
+                self.checkForGame()
                 return
             path, dir = os.path.split(path)
         self.clearBottomLabels()
         self.bottomLabel("Folder name must start with 'romfs'", 'red')
         self.settings['rom'].set('')
+
+    def checkForGame(self):
+        with lzma.open(get_filename('./data/bd_sha.xz'),'rb') as file:
+            bd = pickle.load(file)
+        with lzma.open(get_filename('./data/bs_sha.xz'),'rb') as file:
+            bs = pickle.load(file)
+        path = self.settings['rom'].get()
+        cwd = os.getcwd()
+        os.chdir(path)
+        # Check if BD
+        for fileName, sha in bd.items():
+            if os.path.isfile(fileName):
+                with open(fileName, 'rb') as file:
+                    data = file.read()
+                fileSHA = hashlib.sha1(data).hexdigest()
+                if fileSHA == sha:
+                    self.settings['game'].set('BD')
+                break
+        if self.settings['game'].get() == '':
+            # Check if BS
+            for fileName, sha in bs.items():
+                if os.path.isfile(fileName):
+                    with open(fileName, 'rb') as file:
+                        data = file.read()
+                    fileSHA = hashlib.sha1(data).hexdigest()
+                    if fileSHA == sha:
+                        self.settings['game'].set('BS')
+                    break
+        os.chdir(cwd)
 
     def initialize_settings(self, settings):
         self.settings['release'].set(RELEASE)
