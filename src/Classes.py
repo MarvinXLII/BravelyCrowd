@@ -304,8 +304,10 @@ class CROWDFILES:
     def getDataFromSheet(self, sheet, name):
         if '.fscache' in name:
             return b''
-        nrows = sheet.nrows - 1
-        ncols = sheet.ncols
+        assert self.specs[name]['nrows'] == sheet.nrows, "Missing or added row(s)!"
+        assert self.specs[name]['ncols'] >= sheet.ncols, "Missing column(s)!"
+        nrows = self.specs[name]['nrows'] - 1
+        ncols = self.specs[name]['ncols']
         assert self.specs[name]['spreadsheet']
         textCols = self.specs[name]['textColumns']
         nTextCols = len(textCols)
@@ -610,6 +612,10 @@ class CROWD:
                 for row, value in enumerate(column):
                     sheet.write(row+1, col, value)
                 col += 1
+
+            # Store number of rows and columns
+            self.crowdSpecs[file]['nrows'] = numRows + 1
+            self.crowdSpecs[file]['ncols'] = col
 
             # Store text and command column numbers
             self.crowdSpecs[file]['commandColumns'] = []

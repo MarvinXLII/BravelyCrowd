@@ -1,53 +1,14 @@
-# from Classes import CROWD, CROWD_BD
 from Classes import CROWD, TABLE, CROWDFILES, TABLEFILE
 import os
 import shutil
 import sys
+import lzma
 import pickle
 import hashlib
+sys.path.append('src')
+from Utilities import get_filename
 
-class ROM:
-    def __init__(self, settings):
-        self.settings = settings
-        self.game = settings['game']
-        self.pathIn = self.settings['rom']
-        if os.path.isdir(self.pathOut):
-            shutil.rmtree(self.pathOut)
-        os.makedirs(self.pathOut)
-
-    def fail(self):
-        shutil.rmtree(self.pathOut)
-
-    # Not sure why I did all these copies?
-    def loadCrowd(self, path):
-        dest = os.path.join(self.pathOut, path)
-        if not os.path.isdir(dest):
-            os.makedirs(dest)
-        src = os.path.join(self.pathIn, path, 'crowd.fs')
-        shutil.copy(src, dest)
-        src = os.path.join(self.pathIn, path, 'index.fs')
-        shutil.copy(src, dest)
-        return CROWD(dest, self.pathOut)
-
-    def loadTable(self, fileName):
-        src = os.path.join(self.pathIn, fileName)
-        dest = os.path.join(self.pathOut, fileName)
-        base = os.path.dirname(dest)
-        if not os.path.isdir(base):
-            os.makedirs(base)
-        shutil.copy(src, dest)
-        return TABLE(dest, self.pathOut)
-
-    def copyFile(self, fileName):
-        src = os.path.join(self.pathIn, fileName)
-        dest = os.path.join(self.pathOut, fileName)
-        base = os.path.dirname(dest)
-        if not os.path.isdir(base):
-            os.makedirs(base)
-        shutil.copy(src, dest)
-
-
-class PACK(ROM):
+class PACK:
     def __init__(self, settings):
         dir = os.getcwd()
 
@@ -58,27 +19,32 @@ class PACK(ROM):
         if settings['game'] == 'BD':
             self.pathOut = os.path.join(dirOut, '00040000000FC500', 'romfs')
             logFileName = os.path.join(dirOut, 'BD_mod.log')
+            dataFile = get_filename(os.path.join(dir, 'data/bd.xz'))
         elif settings['game'] == 'BS':
             self.pathOut = os.path.join(dirOut, '000400000017BA00', 'romfs')
             logFileName = os.path.join(dirOut, 'BS_mod.log')
+            dataFile = get_filename(os.path.join(dir, 'data/bs.xz'))
         else:
             sys.exit(f"{settings['game']} is not allowed as the game setting!")
 
-        super().__init__(settings)
+        if os.path.isdir(self.pathOut):
+            shutil.rmtree(self.pathOut)
+        os.makedirs(self.pathOut)
 
-        os.chdir(self.pathIn)
-        with open('data.pickle','rb') as file:
+        self.pathIn = settings['rom']
+
+        with lzma.open(dataFile,'rb') as file:
             crowdSpecs = pickle.load(file)
             crowdFiles = pickle.load(file)
             sheetNames = pickle.load(file)
 
+        os.chdir(self.pathIn)
         moddedFiles = []
         for root, dirs, files in os.walk('.'):
             root = root[2:]
             spreadsheets = list(filter(lambda f: '.xls' in f, files))
             bytefiles = list(filter(lambda f: '.xls' not in f, files))
-            if 'data.pickle' in bytefiles:
-                bytefiles.remove('data.pickle')
+            bytefiles = list(filter(lambda f: '.xz' not in f, files))
 
             if root in crowdFiles:
                 crowd = CROWDFILES(root, crowdFiles, crowdSpecs, sheetNames)
@@ -108,8 +74,6 @@ class PACK(ROM):
                 table.loadData()
                 table.dump(self.pathOut)
 
-        os.chdir(dir)
-
         moddedFiles.sort()
         with open(logFileName, 'w') as file:
             if moddedFiles:
@@ -117,15 +81,21 @@ class PACK(ROM):
                     file.write(m)
             else:
                 file.write('No modified files!')
-                shutil.rmtree(self.pathOut)
-                shutil.rmtree(self.pathOut[:-6])
+                shutil.rmtree(self.pathOut[:-6]) # titleID directory
+
+        os.chdir(dir)
 
 
-class UNPACK(ROM):
+class UNPACK:
     def __init__(self, settings):
         dir = os.getcwd()
+
+        self.pathIn = settings['rom']
         self.pathOut = os.path.join(dir, f"romfs_unpacked")
-        super().__init__(settings)
+        if os.path.isdir(self.pathOut):
+            shutil.rmtree(self.pathOut)
+        os.makedirs(self.pathOut)
+
         os.chdir(self.pathIn)
         crowdSpecs = {}
         crowdFiles = {}
@@ -136,23 +106,18 @@ class UNPACK(ROM):
                 if file == 'index.fs':
                     continue
                 fileName = os.path.join(root, file)
-                checkName = os.path.join(self.pathOut, fileName)
-                if os.path.isfile(checkName):
-                    continue
                 if file == 'crowd.fs':
                     table = self.loadCrowd(root)
                     table.dumpFiles(self.pathOut)
                 else:
                     table = self.loadTable(fileName)
+                print(f'Loaded {fileName}')
 
-                print(fileName)
                 if table.dumpSpreadsheet:
                     print(f'Dumping spreadsheet {fileName}')
                     try:
                         sheetNames.update(table.dumpSheet())
                     except:
-                        print(f'removing {checkName}')
-                        os.remove(checkName)
                         sys.exit(f"Error dumping spreadsheet {fileName}")
 
                 crowdSpecs.update(table.crowdSpecs)
@@ -164,10 +129,31 @@ class UNPACK(ROM):
                     crowdFiles.update({root: baseNames})
 
         # Dump data needed for packing
-        os.chdir(self.pathOut)
-        with open('data.pickle','wb') as file:
-            pickle.dump(crowdSpecs, file)
-            pickle.dump(crowdFiles, file)
-            pickle.dump(sheetNames, file)
+        if 'dumpData' in settings:
+            if settings['dumpData']:
+                os.chdir(self.pathOut)
+                with lzma.open('data.xz', 'wb') as file:
+                    pickle.dump(crowdSpecs, file)
+                    pickle.dump(crowdFiles, file)
+                    pickle.dump(sheetNames, file)
             
         os.chdir(dir)
+
+    def loadCrowd(self, path):
+        dest = os.path.join(self.pathOut, path)
+        if not os.path.isdir(dest):
+            os.makedirs(dest)
+        src = os.path.join(self.pathIn, path, 'crowd.fs')
+        shutil.copy(src, dest)
+        src = os.path.join(self.pathIn, path, 'index.fs')
+        shutil.copy(src, dest)
+        return CROWD(dest, self.pathOut)
+
+    def loadTable(self, fileName):
+        src = os.path.join(self.pathIn, fileName)
+        dest = os.path.join(self.pathOut, fileName)
+        base = os.path.dirname(dest)
+        if not os.path.isdir(base):
+            os.makedirs(base)
+        shutil.copy(src, dest)
+        return TABLE(dest, self.pathOut)
