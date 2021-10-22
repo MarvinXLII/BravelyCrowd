@@ -132,6 +132,7 @@ class GuiApplication:
         path = self.settings['rom'].get()
         cwd = os.getcwd()
         os.chdir(path)
+        self.settings['game'].set('')
         # Check if BD
         for fileName, sha in bd.items():
             if os.path.isfile(fileName):
@@ -140,7 +141,8 @@ class GuiApplication:
                 fileSHA = hashlib.sha1(data).hexdigest()
                 if fileSHA == sha:
                     self.settings['game'].set('BD')
-                break
+                    print(fileName)
+                    break
         if self.settings['game'].get() == '':
             # Check if BS
             for fileName, sha in bs.items():
@@ -150,7 +152,7 @@ class GuiApplication:
                     fileSHA = hashlib.sha1(data).hexdigest()
                     if fileSHA == sha:
                         self.settings['game'].set('BS')
-                    break
+                        break
         os.chdir(cwd)
 
     def initialize_settings(self, settings):
