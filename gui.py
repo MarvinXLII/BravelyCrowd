@@ -6,6 +6,8 @@ import hjson
 import os
 import shutil
 import hashlib
+import lzma
+import pickle
 import sys
 sys.path.append('src')
 from Utilities import get_filename
@@ -13,13 +15,19 @@ from ROM import UNPACK, PACK
 
 MAIN_TITLE = f"Bravely Crowd v{RELEASE}"
 
-
 class GuiApplication:
     def __init__(self, settings=None):
+        self.homeDir = os.getcwd()
         self.master = tk.Tk()
-        self.master.geometry('625x175')
+        self.master.geometry('625x275')
         self.master.title(MAIN_TITLE)
         self.initialize_gui()
+
+        if not settings:
+            if os.path.isfile('settings.json'):
+                with open('settings.json', 'r') as file:
+                    settings = hjson.load(file)
+            
         self.initialize_settings(settings)
         self.master.mainloop()
 
@@ -38,6 +46,9 @@ class GuiApplication:
 
         self.settings['rom'] = tk.StringVar()
         self.settings['rom'].set('')
+        self.settings['game'] = tk.StringVar()
+        self.settings['game'].set('')
+        
 
         pathToPak = tk.Entry(lf, textvariable=self.settings['rom'], width=65, state='readonly')
         pathToPak.grid(row=0, column=0, columnspan=2, padx=(10,0), pady=3)
@@ -51,25 +62,121 @@ class GuiApplication:
         lf = tk.LabelFrame(self.master, text="Packer", font=labelfonts)
         lf.grid(row=0, column=2, columnspan=2, sticky='nsew', padx=5, pady=5, ipadx=5, ipady=5)
         
-        self.unpackBtn = tk.Button(lf, text='Unpack', command=self.unpack, height=1)
+        self.unpackBtn = tk.Button(lf, text='Unpack', command=self._unpack, height=1)
         self.unpackBtn.grid(row=0, column=0, columnspan=1, sticky='we', padx=30, ipadx=30)
 
-        self.packBtn = tk.Button(lf, text='Pack', command=self.pack, height=1)
+        self.packBtn = tk.Button(lf, text='Pack', command=self._pack, height=1)
         self.packBtn.grid(row=1, column=0, columnspan=1, sticky='we', padx=30, ipadx=30)
+
+        # Tabs setup
+        tabControl = ttk.Notebook(self.master)
+        tab = ttk.Frame(tabControl)
+        tabControl.add(tab, text="Settings")
+        tabControl.grid(row=2, column=0, columnspan=20, sticky='news')
+        
+        lf = tk.LabelFrame(tab, text="Game", font=labelfonts)
+        lf.grid(row=0, column=0, padx=10, pady=5, ipadx=30, ipady=5, sticky='news')
+
+        button1 = ttk.Radiobutton(lf, text='Bravely Default', variable=self.settings['game'], value='BD', state=tk.NORMAL)
+        button1.grid(row=1, padx=10, sticky='we')
+        button2 = ttk.Radiobutton(lf, text='Bravely Second', variable=self.settings['game'], value='BS', state=tk.NORMAL)
+        button2.grid(row=2, padx=10, sticky='we')
 
         # For warnings/text at the bottom
         self.canvas = tk.Canvas()
         self.canvas.grid(row=6, column=0, columnspan=20, pady=10)
 
+    def toggler(self, lst, key):
+        def f():
+            if self.settings[key].get():
+                for vi, bi in lst:
+                    if self.settings['game'].get() in vi['game']:
+                        bi.config(state=tk.NORMAL)
+                    else:
+                        bi.config(state=tk.DISABLED)
+        return f
+
+    def buildToolTip(self, button, field):
+        if 'help' in field:
+            CreateToolTip(button, field['help'])
+
+    def turnBoolsOff(self):
+        for si in self.settings.values():
+            if type(si.get()) == bool:
+                si.set(False)
+            
     def getRomPath(self, path=None):
         self.clearBottomLabels()
         if not path:
             path = filedialog.askdirectory()
-        # Exited askdirectory
-        if path == ():
+            if path == ():
+                return
+        else:
+            if not os.path.isdir(path):
+                self.settings['rom'].set('')
+                return
+
+        # Set path
+        path, dir = os.path.split(path)
+        while dir:
+            if 'romfs' in dir or 'RomFS' in dir:
+                # path = os.path.join(path, dir)
+                path = '/'.join([path, dir])
+                self.settings['rom'].set(path)
+                self.checkForGame()
+                return
+            path, dir = os.path.split(path)
+        self.clearBottomLabels()
+        self.bottomLabel("Folder name must start with 'romfs'", 'red')
+        self.settings['rom'].set('')
+
+    def checkForGame(self):
+        self.settings['game'].set('')
+
+        # Specified path exists
+        path = self.settings['rom'].get()
+        if not os.path.isdir(path):
             return
-        # Set path to valid rom
-        self.settings['rom'].set(path)
+
+        # Load reference shas for checking
+        os.chdir(self.homeDir)
+        with lzma.open(get_filename('data/bd_sha.xz'),'rb') as file:
+            bd = pickle.load(file)
+        with lzma.open(get_filename('data/bs_sha.xz'),'rb') as file:
+            bs = pickle.load(file)
+
+        os.chdir(path)
+        for root, dirs, files in os.walk('.'):
+            root = root[2:]
+
+            for fileName in files:
+                fileName = os.path.join(root, fileName)
+
+                # Check BD
+                if fileName in bd:
+                    with open(get_filename(fileName), 'rb') as file:
+                        data = file.read()
+                    fileSHA = hashlib.sha1(data).hexdigest()
+                    if fileSHA == bd[fileName]:
+                        self.settings['game'].set('BD')
+                        print(fileName)
+                        os.chdir(self.homeDir)
+                        return
+
+                # Check BS
+                if fileName in bs:
+                    with open(fileName, 'rb') as file:
+                        data = file.read()
+                    fileSHA = hashlib.sha1(data).hexdigest()
+                    if fileSHA == bs[fileName]:
+                        self.settings['game'].set('BS')
+                        print(fileName)
+                        os.chdir(self.homeDir)
+                        return
+
+                print(fileName, "doesn't exist in the dicts!")
+
+        os.chdir(self.homeDir)
 
     def initialize_settings(self, settings):
         self.settings['release'].set(RELEASE)
@@ -80,10 +187,12 @@ class GuiApplication:
             if key not in self.settings: continue
             self.settings[key].set(value)
         self.getRomPath(path=self.settings['rom'].get())
+        if self.settings['rom'].get() == '':
+            self.settings['game'].set('')
 
-    def bottomLabel(self, text, fg, row):
+    def bottomLabel(self, text, fg):
         L = tk.Label(self.canvas, text=text, fg=fg)
-        L.grid(row=row, columnspan=20)
+        L.grid(row=len(self.warnings), columnspan=20)
         self.warnings.append(L)
         self.master.update()
 
@@ -92,32 +201,110 @@ class GuiApplication:
             warning = self.warnings.pop()
             warning.destroy()
         self.master.update()
+
+    def _checkSettings(self):
+        self.clearBottomLabels()
+        if self.settings['rom'].get() == '':
+            self.bottomLabel('Must select a folder!', 'red')
+            return False
+        elif self.settings['game'].get() == '':
+            self.bottomLabel('Must identify the game!', 'red')
+            return False
+        return True
+
+    def _unpackPopup(self):
+        window = tk.Toplevel(self.master)
+
+        def continueUnpack():
+            window.destroy()
+            self.unpack()
+
+        def abortUnpack():
+            window.destroy()
+            self.clearBottomLabels()
+            self.bottomLabel('Aborting unpacking.', 'red')
+            self.bottomLabel('Backup or remove the folder romfs_unpacked yourself, then continue.', 'red')
+
+        label = tk.Label(window, text="The folder romfs_unpacked will be removed.\nMake sure to back up any modded files before continuing.")
+        label.grid(row=0, column=0, columnspan=2)
+        b1 = ttk.Button(window, text="Continue", command=continueUnpack)
+        b1.grid(row=1, column=0, sticky='we')
+        b2 = ttk.Button(window, text="Abort", command=abortUnpack)
+        b2.grid(row=1, column=1, sticky='we')
         
+    def _packPopup(self):
+        window = tk.Toplevel(self.master)
+
+        def continuePack():
+            window.destroy()
+            self.pack()
+
+        def abortPack():
+            window.destroy()
+            self.clearBottomLabels()
+            self.bottomLabel('Aborting packing.', 'red')
+            self.bottomLabel('Backup or remove the folder romfs_packed yourself, then continue.', 'red')
+
+        label = tk.Label(window, text="The folder romfs_packed will be removed.\nMake sure to back up any modded files before continuing.")
+        label.grid(row=0, column=0, columnspan=2)
+        b1 = ttk.Button(window, text="Continue", command=continuePack)
+        b1.grid(row=1, column=0, sticky='we')
+        b2 = ttk.Button(window, text="Abort", command=abortPack)
+        b2.grid(row=1, column=1, sticky='we')
+        
+    def _unpack(self):
+        if not self._checkSettings():
+            return
+        if os.path.isdir('romfs_unpacked'):
+            self._unpackPopup()
+        else:
+            self.unpack()
+
+    def _pack(self):
+        if not self._checkSettings():
+            return
+        if os.path.isdir('romfs_packed'):
+            self._packPopup()
+        else:
+            self.pack()
+
     def unpack(self, settings=None):
+        
         if settings is None:
             settings = { key: value.get() for key, value in self.settings.items() }
+            with open('settings.json', 'w') as file:
+                hjson.dump(settings, file)
+
+        dir = os.getcwd()
         self.clearBottomLabels()
-        self.bottomLabel('Unpacking....', 'blue', 0)
+        self.bottomLabel('Unpacking....', 'blue')
         if unpack(settings):
             self.clearBottomLabels()
-            self.bottomLabel('Unpacking...done!', 'blue', 0)
+            self.bottomLabel('Unpacking...done!', 'blue')
         else:
             self.clearBottomLabels()
-            self.bottomLabel('Mrgrgrgrgr!', 'red', 0)
-            self.bottomLabel('Unpacking failed.', 'red', 1)
+            self.bottomLabel('Mrgrgrgrgr!', 'red')
+            self.bottomLabel('Unpacking failed.', 'red')
+        os.chdir(dir)
 
     def pack(self, settings=None):
+
         if settings is None:
             settings = { key: value.get() for key, value in self.settings.items() }
+            with open('settings.json', 'w') as file:
+                hjson.dump(settings, file)
+
+        dir = os.getcwd()
         self.clearBottomLabels()
-        self.bottomLabel('Packing....', 'blue', 0)
+        self.bottomLabel('Packing....', 'blue')
         if pack(settings):
             self.clearBottomLabels()
-            self.bottomLabel('Packing...done!', 'blue', 0)
+            self.bottomLabel('Packing...done!', 'blue')
         else:
             self.clearBottomLabels()
-            self.bottomLabel('Mrgrgrgrgr!', 'red', 0)
-            self.bottomLabel('Packing failed.', 'red', 1)
+            self.bottomLabel('Mrgrgrgrgr!', 'red')
+            self.bottomLabel('Packing failed.', 'red')
+        os.chdir(dir)
 
 
 def unpack(settings):
@@ -126,7 +313,6 @@ def unpack(settings):
     except:
         return False
     return True
-
 
 def pack(settings):
     try:
