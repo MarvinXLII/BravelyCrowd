@@ -17,6 +17,7 @@ MAIN_TITLE = f"Bravely Crowd v{RELEASE}"
 
 class GuiApplication:
     def __init__(self, settings=None):
+        self.homeDir = os.getcwd()
         self.master = tk.Tk()
         self.master.geometry('625x275')
         self.master.title(MAIN_TITLE)
@@ -108,9 +109,13 @@ class GuiApplication:
         self.clearBottomLabels()
         if not path:
             path = filedialog.askdirectory()
-        # Exited askdirectory
-        if path == ():
-            return
+            if path == ():
+                return
+        else:
+            if not os.path.isdir(path):
+                self.settings['rom'].set('')
+                return
+
         # Set path
         path, dir = os.path.split(path)
         while dir:
@@ -125,35 +130,48 @@ class GuiApplication:
         self.settings['rom'].set('')
 
     def checkForGame(self):
+        self.settings['game'].set('')
+
+        # Specified path exists
+        path = self.settings['rom'].get()
+        if not os.path.isdir(path):
+            return
+
+        # Load reference shas for checking
+        os.chdir(self.homeDir)
         with lzma.open(get_filename('./data/bd_sha.xz'),'rb') as file:
             bd = pickle.load(file)
         with lzma.open(get_filename('./data/bs_sha.xz'),'rb') as file:
             bs = pickle.load(file)
-        path = self.settings['rom'].get()
-        cwd = os.getcwd()
-        os.chdir(path)
-        self.settings['game'].set('')
+
         # Check if BD
-        for fileName, sha in bd.items():
-            if os.path.isfile(fileName):
-                with open(fileName, 'rb') as file:
-                    data = file.read()
-                fileSHA = hashlib.sha1(data).hexdigest()
-                if fileSHA == sha:
-                    self.settings['game'].set('BD')
-                    print(fileName)
-                    break
-        if self.settings['game'].get() == '':
-            # Check if BS
-            for fileName, sha in bs.items():
-                if os.path.isfile(fileName):
+        os.chdir(path)
+        for root, dirs, files in os.walk('.'):
+            for f in files:
+                fileName = os.path.join(root[2:], f)
+                # Check BD
+                if fileName in bd:
                     with open(fileName, 'rb') as file:
                         data = file.read()
                     fileSHA = hashlib.sha1(data).hexdigest()
-                    if fileSHA == sha:
+                    if fileSHA == bd[fileName]:
+                        self.settings['game'].set('BD')
+                        print(fileName)
+                        os.chdir(self.homeDir)
+                        return
+
+                # Check BS
+                if fileName in bs:
+                    with open(fileName, 'rb') as file:
+                        data = file.read()
+                    fileSHA = hashlib.sha1(data).hexdigest()
+                    if fileSHA == bs[fileName]:
                         self.settings['game'].set('BS')
-                        break
-        os.chdir(cwd)
+                        print(fileName)
+                        os.chdir(self.homeDir)
+                        return
+
+        os.chdir(self.homeDir)
 
     def initialize_settings(self, settings):
         self.settings['release'].set(RELEASE)
@@ -164,6 +182,8 @@ class GuiApplication:
             if key not in self.settings: continue
             self.settings[key].set(value)
         self.getRomPath(path=self.settings['rom'].get())
+        if self.settings['rom'].get() == '':
+            self.settings['game'].set('')
 
     def bottomLabel(self, text, fg):
         L = tk.Label(self.canvas, text=text, fg=fg)
