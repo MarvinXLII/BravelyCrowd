@@ -35,14 +35,13 @@ Editing files, even in a spreadsheet, will be a bit complicated. Please read thi
 - The executable is only compatible with spreadsheets of the `.xls`
   format. Do not reformat these files into `.xlsx` or anything else.
 
-- Unpacking and packing can be a bit slow. You can speed this up by
-  removing large folders you won't be modding, such as `Graphics` or
-  `Sound`.
+- Unpacking and packing files can be a bit slow. You can speed this up
+  by removing large folders you won't be modding, such as `Graphics`
+  or `Sound`. Never remove files individually, as this can lead to
+  issues when packing crowds.
 
 - Some spreadsheets have text in them. These columns are labeled
   `Text` and `Labels`. When these are present you'll also see some
   columns labeled `Text Pntr` and `Label Pntr`. These columns need to
   be updated if you change any text, but don't worry! The tool will
   automatically update them for you!
-
-- Don't add any extra rows or columns to spreadsheets you edit.
