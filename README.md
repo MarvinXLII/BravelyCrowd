@@ -1,27 +1,48 @@
 ### ABOUT
 
-This is a little tool for unpacking and packing the crowd files in Bravely Second.
+This is a little editor for data tables in Bravely Default and Bravely
+Second. It unpacks the crowd files, organizes data into speadsheets
+whenever possible, and packs edited files and spreadsheets into a mod.
 
 ### USAGE
 
-To run the executable from the Releases page, it is assumed that you
-have [extracted RomFS from your
-cartridge](https://gist.github.com/PixelSergey/73d0a4bc1437dbaa53a1d1ce849fdda1).
-It will not work with `*.3ds`, `*.cia`, etc. files. The executable
-requires that you input the path to (and including) the folder
-`romfs`.
+This tool is only compatible with an extracted RomFS. You'll need to do
+this first with other tools such as GodMode9 or
+[DotNet3DS](https://github.com/evandixon/DotNet3dsToolkit/releases). Follow
+[this
+link](https://gist.github.com/PixelSergey/73d0a4bc1437dbaa53a1d1ce849fdda1)
+for help with GodMode9.
 
-Selecting `Unpack` in the executable will unpack and decompress all
-crowd files in the selected `romfs` folder. This will take some time
-if all the files are there. The unpacked files will be put in the
-folder `romfs_unpacked`.
+When that is done, you can run executable from the Releases page. To
+unpack the files and make spreadsheets, just browse for the RomFS
+folder and select Unpack. It should automatically identify whether the
+files belong to Bravlely Default or Bravely Second, but make sure you
+double check this before proceeding.
 
-Selecting `Pack` in the executable will pack and compress all crowd
-files in the selected folder. It is strongly recommended that you
-remove any unmodified folders (NEVER delete a single file) to speed
-this up. The packed files will be put in the folder `romfs_packed`.
-
-You can run your packed files on your console with [Luma
+Unpacked files will be dumped in the folder `romfs_unpacked`. There
+you can edit spreadsheets or any of the other file with a hex
+editor. When done, run the executable, browse for `romfs_unpacked`,
+and click Pack to pack the files and build a mod. The mod will be
+output in the folder `romfs_packed`, along with a log file listing
+each file modified. You can run your mod on your console, for example,
+with [Luma
 LayeredFS](https://gist.github.com/PixelSergey/5dbb4a9b90d290736353fa58e4fcbb42).
-NOTE that you will have to copy and rename the `romfs_packed` folder
-to `romfs` for it to work.
+
+### IMPORTANT NOTES
+
+Editing files, even in a spreadsheet, will be a bit complicated. Please read this carefully:
+
+- The executable is only compatible with spreadsheets of the `.xls`
+  format. Do not reformat these files into `.xlsx` or anything else.
+
+- Unpacking and packing can be a bit slow. You can speed this up by
+  removing large folders you won't be modding, such as `Graphics` or
+  `Sound`.
+
+- Some spreadsheets have text in them. These columns are labeled
+  `Text` and `Labels`. When these are present you'll also see some
+  columns labeled `Text Pntr` and `Label Pntr`. These columns need to
+  be updated if you change any text, but don't worry! The tool will
+  automatically update them for you!
+
+- Don't add any extra rows or columns to spreadsheets you edit.
