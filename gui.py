@@ -253,12 +253,16 @@ class GuiApplication:
         b2.grid(row=1, column=1, sticky='we')
         
     def _unpack(self):
+        if not self._checkSettings():
+            return
         if os.path.isdir('romfs_unpacked'):
             self._unpackPopup()
         else:
             self.unpack()
 
     def _pack(self):
+        if not self._checkSettings():
+            return
         if os.path.isdir('romfs_packed'):
             self._packPopup()
         else:
@@ -266,9 +270,6 @@ class GuiApplication:
 
     def unpack(self, settings=None):
         
-        if not self._checkSettings():
-            return
-
         if settings is None:
             settings = { key: value.get() for key, value in self.settings.items() }
             with open('settings.json', 'w') as file:
@@ -287,8 +288,6 @@ class GuiApplication:
         os.chdir(dir)
 
     def pack(self, settings=None):
-        if not self._checkSettings():
-            return
 
         if settings is None:
             settings = { key: value.get() for key, value in self.settings.items() }
