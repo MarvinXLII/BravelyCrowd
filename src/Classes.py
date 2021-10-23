@@ -606,11 +606,13 @@ class CROWD:
             # Dump data to spreadsheets
             col = 0
             for column in commandData:
+                sheet.write(0, col, "Label")
                 for row, value in enumerate(column):
                     sheet.write(row+1, col, value)
                 col += 1
 
             for column in textData:
+                sheet.write(0, col, "Text")
                 for row, value in enumerate(column):
                     sheet.write(row+1, col, value)
                 col += 1
@@ -627,14 +629,17 @@ class CROWD:
             # Store text and command column numbers
             self.crowdSpecs[file]['commandColumns'] = []
             self.crowdSpecs[file]['textColumns'] = []
+            colOffset = len(commandData) + len(textData)
             while commandSizes:
                 lst = commandSizes.pop(0)
                 index = columns.index(lst)
+                sheet.write(0, colOffset + index, "Label Pntr")
                 assert index >= 0
                 self.crowdSpecs[file]['commandColumns'].append(index)
             while textSizes:
                 lst = textSizes.pop(0)
                 index = columns.index(lst)
+                sheet.write(0, colOffset + index, "Text Pntr")
                 assert index >= 0
                 self.crowdSpecs[file]['textColumns'].append(index)
             assert set(self.crowdSpecs[file]['textColumns']).isdisjoint(self.crowdSpecs[file]['commandColumns'])
