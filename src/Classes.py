@@ -310,9 +310,9 @@ class CROWDFILES:
     def getDataFromSheet(self, sheet, name):
         if '.fscache' in name:
             return b''
-        assert self.specs[name]['nrows'] == sheet.nrows, "Missing or added row(s)!"
+        # assert self.specs[name]['nrows'] == sheet.nrows, "Missing or added row(s)!"
         assert self.specs[name]['ncols'] >= sheet.ncols, "Missing column(s)!"
-        nrows = self.specs[name]['nrows'] - 1
+        nrows = sheet.nrows - 1
         ncols = self.specs[name]['ncols']
         assert self.specs[name]['spreadsheet']
         textCols = self.specs[name]['textColumns']
