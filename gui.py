@@ -120,7 +120,8 @@ class GuiApplication:
         path, dir = os.path.split(path)
         while dir:
             if 'romfs' in dir or 'RomFS' in dir:
-                path = os.path.join(path, dir)
+                # path = os.path.join(path, dir)
+                path = '/'.join([path, dir])
                 self.settings['rom'].set(path)
                 self.checkForGame()
                 return
@@ -139,19 +140,21 @@ class GuiApplication:
 
         # Load reference shas for checking
         os.chdir(self.homeDir)
-        with lzma.open(get_filename('./data/bd_sha.xz'),'rb') as file:
+        with lzma.open(get_filename('data/bd_sha.xz'),'rb') as file:
             bd = pickle.load(file)
-        with lzma.open(get_filename('./data/bs_sha.xz'),'rb') as file:
+        with lzma.open(get_filename('data/bs_sha.xz'),'rb') as file:
             bs = pickle.load(file)
 
-        # Check if BD
         os.chdir(path)
         for root, dirs, files in os.walk('.'):
-            for f in files:
-                fileName = os.path.join(root[2:], f)
+            root = root[2:]
+
+            for fileName in files:
+                fileName = os.path.join(root, fileName)
+
                 # Check BD
                 if fileName in bd:
-                    with open(fileName, 'rb') as file:
+                    with open(get_filename(fileName), 'rb') as file:
                         data = file.read()
                     fileSHA = hashlib.sha1(data).hexdigest()
                     if fileSHA == bd[fileName]:
@@ -170,6 +173,8 @@ class GuiApplication:
                         print(fileName)
                         os.chdir(self.homeDir)
                         return
+
+                print(fileName, "doesn't exist in the dicts!")
 
         os.chdir(self.homeDir)
 

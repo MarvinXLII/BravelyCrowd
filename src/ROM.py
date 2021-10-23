@@ -17,11 +17,11 @@ class PACK:
         if settings['game'] == 'BD':
             self.pathOut = os.path.join(dirOut, '00040000000FC500', 'romfs')
             logFileName = os.path.join(dirOut, 'BD_mod.log')
-            dataFile = get_filename(os.path.join(dir, 'data/bd.xz'))
+            dataFile = get_filename('data/bd.xz')
         elif settings['game'] == 'BS':
             self.pathOut = os.path.join(dirOut, '000400000017BA00', 'romfs')
             logFileName = os.path.join(dirOut, 'BS_mod.log')
-            dataFile = get_filename(os.path.join(dir, 'data/bs.xz'))
+            dataFile = get_filename('data/bs.xz')
         else:
             sys.exit(f"{settings['game']} is not allowed as the game setting!")
 

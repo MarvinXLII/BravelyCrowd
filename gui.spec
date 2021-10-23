@@ -5,12 +5,15 @@ block_cipher = None
 a = Analysis(
     [
         'gui.py',
+        'src/ROM.py',
         'src/Classes.py',
         'src/Utilities.py',
     ],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('data/*.xz', 'data'),
+    ],
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],
