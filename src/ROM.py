@@ -14,8 +14,6 @@ class PACK:
 
         # Setup output paths and files
         dirOut = os.path.join(dir, 'romfs_packed')
-        if os.path.isdir(dirOut):
-            shutil.rmtree(dirOut)
         if settings['game'] == 'BD':
             self.pathOut = os.path.join(dirOut, '00040000000FC500', 'romfs')
             logFileName = os.path.join(dirOut, 'BD_mod.log')
@@ -27,8 +25,8 @@ class PACK:
         else:
             sys.exit(f"{settings['game']} is not allowed as the game setting!")
 
-        if os.path.isdir(self.pathOut):
-            shutil.rmtree(self.pathOut)
+        if os.path.isdir(dirOut):
+            shutil.rmtree(dirOut)
         os.makedirs(self.pathOut)
 
         self.pathIn = settings['rom']
@@ -44,13 +42,14 @@ class PACK:
             root = root[2:]
             spreadsheets = list(filter(lambda f: '.xls' in f, files))
             bytefiles = list(filter(lambda f: '.xls' not in f, files))
-            bytefiles = list(filter(lambda f: '.xz' not in f, files))
+            bytefiles = list(filter(lambda f: '.xz' not in f, bytefiles))
 
             if root in crowdFiles:
                 crowd = CROWDFILES(root, crowdFiles, crowdSpecs, sheetNames)
                 crowd.loadData()
-                crowd.dump(self.pathOut)
-                moddedFiles += crowd.moddedFiles
+                if crowd.isModified:
+                    crowd.dump(self.pathOut)
+                    moddedFiles.append(crowd.moddedFiles)
                 if 'crowd.xls' in spreadsheets:
                     spreadsheets.remove('crowd.xls')
                 if 'crowd.fs' in bytefiles:
@@ -64,7 +63,7 @@ class PACK:
                 table.loadData()
                 if table.isModified:
                     table.dump(self.pathOut)
-                    moddedFiles += table.moddedFiles
+                    moddedFiles.append([os.path.join(root, sheet)])
                     name = table.getFileName()
                     if name in bytefiles:
                         bytefiles.remove(name)
@@ -72,13 +71,17 @@ class PACK:
             for fileName in bytefiles:
                 table = TABLEFILE(root, fileName, crowdSpecs, sheetNames)
                 table.loadData()
-                table.dump(self.pathOut)
+                if table.isModified:
+                    table.dump(self.pathOut)
+                    moddedFiles.append([os.path.join(root, fileName)])
 
-        moddedFiles.sort()
+        moddedFiles.sort(key=lambda x: x[0])
         with open(logFileName, 'w') as file:
             if moddedFiles:
                 for m in moddedFiles:
-                    file.write(m)
+                    file.write(m.pop(0) + '\n')
+                    for mi in m:
+                        file.write('    - ' + mi + '\n')
             else:
                 file.write('No modified files!')
                 shutil.rmtree(self.pathOut[:-6]) # titleID directory

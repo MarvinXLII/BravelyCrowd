@@ -195,7 +195,7 @@ class CROWDFILES:
             sha = hashlib.sha1(data).hexdigest()
             if sha != self.specs[name]['sha']:
                 self._isModified = True
-                self._moddedFiles.append(name)
+                self._moddedFiles.append(os.path.basename(name))
         return self._isModified
 
     @property
@@ -208,10 +208,16 @@ class CROWDFILES:
         # Try spreadsheet first
         sheetName = os.path.join(self.root, 'crowd.xls')
         self._loadSheet('crowd.xls')
+        if self.isModified:
+            self._moddedFiles.insert(0, sheetName)
+            return
 
         # Try tables if sheets are unedited/don't exist
-        if not self.isModified:
-            self._loadTables(self.fileList)
+        self._loadTables(self.fileList)
+        if self.isModified:
+            fileName = os.path.join(self.root, 'crowd.fs')
+            self._moddedFiles.insert(0, fileName)
+            return
 
     def _allFilesExist(self, fileList):
         for fileName in fileList:
@@ -432,12 +438,13 @@ class TABLEFILE(CROWDFILES):
 
     def dump(self, pathOut):
         if not self.isModified:
-            print(f"{self.root}: No modified table data to dump!")
+            print(f"{self.root}/{self.fileName}: No modified table data to dump!")
             return
 
         directory = os.path.join(pathOut, self.root)
         if not os.path.isdir(directory):
             os.makedirs(directory)
+
         assert len(self.data) == 1, "ONLY ONE TABLE ENTRY IS ALLOWED!"
         for fileName, data in self.data.items(): # fileName = root + file
             assert not self.specs[fileName]['compressed'], "NEED TO CALL _getData WHEN DUMPING INDIVIDUAL TABLES"

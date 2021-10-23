@@ -61,10 +61,10 @@ class GuiApplication:
         lf = tk.LabelFrame(self.master, text="Packer", font=labelfonts)
         lf.grid(row=0, column=2, columnspan=2, sticky='nsew', padx=5, pady=5, ipadx=5, ipady=5)
         
-        self.unpackBtn = tk.Button(lf, text='Unpack', command=self.unpack, height=1)
+        self.unpackBtn = tk.Button(lf, text='Unpack', command=self._unpack, height=1)
         self.unpackBtn.grid(row=0, column=0, columnspan=1, sticky='we', padx=30, ipadx=30)
 
-        self.packBtn = tk.Button(lf, text='Pack', command=self.pack, height=1)
+        self.packBtn = tk.Button(lf, text='Pack', command=self._pack, height=1)
         self.packBtn.grid(row=1, column=0, columnspan=1, sticky='we', padx=30, ipadx=30)
 
         # Tabs setup
@@ -187,12 +187,12 @@ class GuiApplication:
             return False
         return True
 
-    def _unpackPopup(self, settings=None):
+    def _unpackPopup(self):
         window = tk.Toplevel(self.master)
 
         def continueUnpack():
             window.destroy()
-            self.runUnpack(settings)
+            self.unpack()
 
         def abortUnpack():
             window.destroy()
@@ -200,19 +200,19 @@ class GuiApplication:
             self.bottomLabel('Aborting unpacking.', 'red')
             self.bottomLabel('Backup or remove the folder romfs_unpacked yourself, then continue.', 'red')
 
-        label = tk.Label(window, text="")
-        label.grid(row=0, column=0)
+        label = tk.Label(window, text="The folder romfs_unpacked will be removed.\nMake sure to back up any modded files before continuing.")
+        label.grid(row=0, column=0, columnspan=2)
         b1 = ttk.Button(window, text="Continue", command=continueUnpack)
-        b1.grid(row=1, column=0)
+        b1.grid(row=1, column=0, sticky='we')
         b2 = ttk.Button(window, text="Abort", command=abortUnpack)
-        b2.grid(row=1, column=1)
+        b2.grid(row=1, column=1, sticky='we')
         
-    def _packPopup(self, settings=None):
+    def _packPopup(self):
         window = tk.Toplevel(self.master)
 
         def continuePack():
             window.destroy()
-            self.runUnpack(settings)
+            self.pack()
 
         def abortPack():
             window.destroy()
@@ -220,31 +220,36 @@ class GuiApplication:
             self.bottomLabel('Aborting packing.', 'red')
             self.bottomLabel('Backup or remove the folder romfs_packed yourself, then continue.', 'red')
 
-        b1 = ttk.Button(window, text="Continue", command=continueUnpack)
-        b1.grid(row=1, column=0)
-        b2 = ttk.Button(window, text="Abort", command=abortUnpack)
-        b2.grid(row=1, column=1)
+        label = tk.Label(window, text="The folder romfs_packed will be removed.\nMake sure to back up any modded files before continuing.")
+        label.grid(row=0, column=0, columnspan=2)
+        b1 = ttk.Button(window, text="Continue", command=continuePack)
+        b1.grid(row=1, column=0, sticky='we')
+        b2 = ttk.Button(window, text="Abort", command=abortPack)
+        b2.grid(row=1, column=1, sticky='we')
         
-    def unpack(self, settings=None):
+    def _unpack(self):
         if os.path.isdir('romfs_unpacked'):
-            self._unpackPopup(self.master)
+            self._unpackPopup()
         else:
-            self.runUnpack(settings)
+            self.unpack()
 
-    def pack(self, settings=None):
+    def _pack(self):
         if os.path.isdir('romfs_packed'):
-            self._packPopup(self.master)
+            self._packPopup()
         else:
-            self.runPack(settings)
+            self.pack()
 
-    def runUnpack(self, settings=None):
+    def unpack(self, settings=None):
         
         if not self._checkSettings():
             return
 
         if settings is None:
             settings = { key: value.get() for key, value in self.settings.items() }
-        
+            with open('settings.json', 'w') as file:
+                hjson.dump(settings, file)
+
+        dir = os.getcwd()
         self.clearBottomLabels()
         self.bottomLabel('Unpacking....', 'blue')
         if unpack(settings):
@@ -254,13 +259,18 @@ class GuiApplication:
             self.clearBottomLabels()
             self.bottomLabel('Mrgrgrgrgr!', 'red')
             self.bottomLabel('Unpacking failed.', 'red')
+        os.chdir(dir)
 
-    def runPack(self, settings=None):
+    def pack(self, settings=None):
         if not self._checkSettings():
             return
 
         if settings is None:
             settings = { key: value.get() for key, value in self.settings.items() }
+            with open('settings.json', 'w') as file:
+                hjson.dump(settings, file)
+
+        dir = os.getcwd()
         self.clearBottomLabels()
         self.bottomLabel('Packing....', 'blue')
         if pack(settings):
@@ -270,6 +280,7 @@ class GuiApplication:
             self.clearBottomLabels()
             self.bottomLabel('Mrgrgrgrgr!', 'red')
             self.bottomLabel('Packing failed.', 'red')
+        os.chdir(dir)
 
 
 def unpack(settings):
@@ -277,18 +288,13 @@ def unpack(settings):
         UNPACK(settings)
     except:
         return False
-    with open('settings.json', 'w') as file:
-        hjson.dump(settings, file)
     return True
-
 
 def pack(settings):
     try:
         PACK(settings)
     except:
         return False
-    with open('settings.json', 'w') as file:
-        hjson.dump(settings, file)
     return True
 
 
