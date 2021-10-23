@@ -25,8 +25,8 @@ class PACK:
         else:
             sys.exit(f"{settings['game']} is not allowed as the game setting!")
 
-        if os.path.isdir(dirOut):
-            shutil.rmtree(dirOut)
+        if os.path.isdir(self.pathOut):
+            shutil.rmtree(self.pathOut)
         os.makedirs(self.pathOut)
 
         self.pathIn = settings['rom']
