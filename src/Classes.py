@@ -6,6 +6,7 @@ import xlwt
 import math
 import struct
 import hashlib
+import logging
 from io import BytesIO
 # import pudb; pu.db
 
@@ -193,6 +194,7 @@ class CROWDFILES:
         self._moddedFiles = []
         for name, data in self.data.items():
             sha = hashlib.sha1(data).hexdigest()
+            # if name in self.specs and sha != self.specs[name]['sha']:
             if sha != self.specs[name]['sha']:
                 self._isModified = True
                 self._moddedFiles.append(os.path.basename(name))
@@ -219,11 +221,14 @@ class CROWDFILES:
             self._moddedFiles.insert(0, fileName)
             return
 
-    def _allFilesExist(self, fileList):
+    def allFilesExist(self, fileList=None):
+        if fileList is None:
+            fileList = self.fileList
+        logger = logging.getLogger()
         for fileName in fileList:
             fileName = os.path.join(self.root, fileName)
             if not os.path.isfile(fileName):
-                print(f'Missing {fileName}')
+                logger.info(f'Missing {fileName}!')
                 return False
         return True
 
@@ -240,7 +245,7 @@ class CROWDFILES:
 
     def _loadTables(self, fileList):
         self.data = {}
-        if self._allFilesExist(fileList):
+        if self.allFilesExist(fileList):
             for fileName in fileList:
                 fileName = os.path.join(self.root, fileName)
                 with open(fileName, 'rb') as file:
