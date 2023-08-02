@@ -15,9 +15,7 @@ for help with GodMode9.
 
 When that is done, you can run executable from the Releases page. To
 unpack the files and make spreadsheets, just browse for the RomFS
-folder and select Unpack. It should automatically identify whether the
-files belong to Bravlely Default or Bravely Second, but make sure you
-double check this before proceeding.
+folder, select which game is being used, and select Unpack.
 
 Unpacked files will be dumped in the folder `romfs_unpacked`. There
 you can edit spreadsheets or any of the other file with a hex

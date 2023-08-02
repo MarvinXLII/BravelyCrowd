@@ -138,44 +138,6 @@ class GuiApplication:
         if not os.path.isdir(path):
             return
 
-        # Load reference shas for checking
-        os.chdir(self.homeDir)
-        with lzma.open(get_filename('data/bd_sha.xz'),'rb') as file:
-            bd = pickle.load(file)
-        with lzma.open(get_filename('data/bs_sha.xz'),'rb') as file:
-            bs = pickle.load(file)
-
-        os.chdir(path)
-        for root, dirs, files in os.walk('.'):
-            root = root[2:]
-
-            for fileName in files:
-                fileName = os.path.join(root, fileName)
-
-                # Check BD
-                if fileName in bd:
-                    with open(get_filename(fileName), 'rb') as file:
-                        data = file.read()
-                    fileSHA = hashlib.sha1(data).hexdigest()
-                    if fileSHA == bd[fileName]:
-                        self.settings['game'].set('BD')
-                        print(fileName)
-                        os.chdir(self.homeDir)
-                        return
-
-                # Check BS
-                if fileName in bs:
-                    with open(fileName, 'rb') as file:
-                        data = file.read()
-                    fileSHA = hashlib.sha1(data).hexdigest()
-                    if fileSHA == bs[fileName]:
-                        self.settings['game'].set('BS')
-                        print(fileName)
-                        os.chdir(self.homeDir)
-                        return
-
-                print(fileName, "doesn't exist in the dicts!")
-
         os.chdir(self.homeDir)
 
     def initialize_settings(self, settings):

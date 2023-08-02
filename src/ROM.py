@@ -45,7 +45,7 @@ class PACK:
         logging.basicConfig(
             filename=logfile,
             filemode='a',
-            level=logging.INFO
+            level=logging.INFO,
         )
         logger = logging.getLogger()
 
@@ -140,6 +140,7 @@ class PACK:
 
         if not os.path.getsize(logfile):
             os.remove(logfile)
+        logger.removeHandler(logger.handlers[0])
 
 
 class UNPACK:
