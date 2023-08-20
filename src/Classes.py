@@ -241,8 +241,11 @@ class CROWDFILES:
             self.spreadsheet = xlrd.open_workbook(fileName)
             for sheet in self.spreadsheet.sheets():
                 sheetName = os.path.join(self.root, self.sheetToFile[sheet.name])
-                self.data[sheetName] = self.getDataFromSheet(sheet, sheetName)
-                self.getHeadersFromSheet(sheet, sheetName)
+                if '.fscache' in sheetName:
+                    self.data[sheetName] = b''
+                else:
+                    self.data[sheetName] = self.getDataFromSheet(sheet, sheetName)
+                    self.getHeadersFromSheet(sheet, sheetName)
                 # sha = hashlib.sha1(self.data[sheetName]).hexdigest()
                 # assert sha == self.specs[sheetName]['sha'], f"{self.root}/{sheet.name}"
 
@@ -460,6 +463,7 @@ class TABLEFILE(CROWDFILES):
         self.data = {}
         self._isModified = False
         self._moddedFiles = []
+        self.allHeaders = {}
  
     def loadData(self):
         assert not self.data, "DATA ALREADY LOADED!"
@@ -493,9 +497,10 @@ class TABLEFILE(CROWDFILES):
 
 
 class CROWD:
-    def __init__(self, path, pathOut):
+    def __init__(self, path, pathOut, headersPath):
         self.path = path
         self.pathOut = pathOut
+        self.headersPath = headersPath
         
         fileName = os.path.join(path, 'index.fs')
         with open(fileName, 'rb') as file:
@@ -603,7 +608,7 @@ class CROWD:
                 x = x[:31]
             sheetNames[x] = os.path.basename(file)
             
-            wb.add_sheet(x)
+            wb.add_sheet(x, cell_overwrite_ok=True)
             sheet = wb.get_sheet(x)
             if x == '.fscache': # EMPTY FILES
                 assert self.crowdFiles[file].data.getbuffer().tobytes() == b''
@@ -678,13 +683,24 @@ class CROWD:
                 self.crowdSpecs[file]['textColumns'].append(index)
             assert set(self.crowdSpecs[file]['textColumns']).isdisjoint(self.crowdSpecs[file]['commandColumns'])
 
+            # Load default column headers
+            # TODO
+
+            # Load user column headers
+            headerName = os.path.splitext(os.path.join(self.headersPath, file))[0] + '.hjson'
+            if os.path.isfile(headerName):
+                with open(headerName, 'r') as file:
+                    headers = hjson.load(file)
+                for col, v in enumerate(headers.values()):
+                    sheet.write(0, col, v)
+
         wb.save(self.sheetName)
         print('   Done!')
         return sheetNames
 
 
 class TABLE(CROWD):
-    def __init__(self, fileName, pathOut):
+    def __init__(self, fileName, pathOut, headersPath):
         self.path = os.path.dirname(fileName)
         self.fileName = fileName
         self.baseName = os.path.basename(fileName)
@@ -698,6 +714,7 @@ class TABLE(CROWD):
             self.crowdSpecs.update(value.fileContents())
         pre, _ = os.path.splitext(self.fileName)
         self.sheetName = f"{pre}.xls"
+        self.headersPath = headersPath
 
     def dump(self):
         with open(self.fileName, 'wb') as file:

@@ -154,6 +154,11 @@ class UNPACK:
     def __init__(self, settings):
         dir = os.getcwd()
 
+        if settings['game'] == 'BD':
+            self.headersPath = os.path.join(dir, 'romfs_packed', 'headers_BD')
+        else:
+            self.headersPath = os.path.join(dir, 'romfs_packed', 'headers_BS')
+
         self.pathIn = settings['rom']
         self.pathOut = os.path.join(dir, f"romfs_unpacked")
         if os.path.isdir(self.pathOut):
@@ -209,7 +214,7 @@ class UNPACK:
         shutil.copy(src, dest)
         src = os.path.join(self.pathIn, path, 'index.fs')
         shutil.copy(src, dest)
-        return CROWD(dest, self.pathOut)
+        return CROWD(dest, self.pathOut, self.headersPath)
 
     def loadTable(self, fileName):
         src = os.path.join(self.pathIn, fileName)
@@ -218,4 +223,4 @@ class UNPACK:
         if not os.path.isdir(base):
             os.makedirs(base)
         shutil.copy(src, dest)
-        return TABLE(dest, self.pathOut)
+        return TABLE(dest, self.pathOut, self.headersPath)
