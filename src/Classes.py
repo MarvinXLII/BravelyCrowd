@@ -7,6 +7,7 @@ import math
 import struct
 import hashlib
 import logging
+import hjson
 from io import BytesIO
 # import pudb; pu.db
 
@@ -185,6 +186,7 @@ class CROWDFILES:
         self.data = {}
         self._isModified = False
         self._moddedFiles = []
+        self.allHeaders = {}
 
     # Checks if any file in the crowd is modified
     @property
@@ -240,6 +242,7 @@ class CROWDFILES:
             for sheet in self.spreadsheet.sheets():
                 sheetName = os.path.join(self.root, self.sheetToFile[sheet.name])
                 self.data[sheetName] = self.getDataFromSheet(sheet, sheetName)
+                self.getHeadersFromSheet(sheet, sheetName)
                 # sha = hashlib.sha1(self.data[sheetName]).hexdigest()
                 # assert sha == self.specs[sheetName]['sha'], f"{self.root}/{sheet.name}"
 
@@ -266,6 +269,15 @@ class CROWDFILES:
         fileCrowd = os.path.join(path, 'crowd.fs')
         with open(fileCrowd, 'wb') as file:
             file.write(crowd)
+
+    def dumpHeaders(self, pathOut):
+        for f, h in self.allHeaders.items():
+            filename = os.path.join(pathOut, f)
+            dirname = os.path.dirname(filename)
+            if not os.path.isdir(dirname):
+                os.makedirs(dirname)
+            with open(filename, 'w') as file:
+                hjson.dump(h, file)
 
     def _getData(self, fileName):
         assert self.isModified
@@ -311,6 +323,23 @@ class CROWDFILES:
 
     def toBytes(self, i):
         return i.to_bytes(4, byteorder='little', signed=True)
+
+    def getHeadersFromSheet(self, sheet, name):
+        headers = sheet.row_values(0)
+        headersData = {}
+        v = [ord('A')-1] * 3
+        for h in headers:
+            v[-1] += 1
+            i = len(v) - 1
+            while i:
+                if v[i] == ord('Z') + 1:
+                    v[i-1] += 1
+                    v[i] = ord('A')
+                i -= 1
+            vh = ''.join(map(chr, v)).replace(chr(ord('A')-1), '')
+            headersData[vh] = h
+        name_json = os.path.splitext(name)[0] + '.hjson'
+        self.allHeaders[name_json] = headersData
         
     def getDataFromSheet(self, sheet, name):
         if '.fscache' in name:

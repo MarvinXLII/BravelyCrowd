@@ -19,16 +19,21 @@ class PACK:
             self.pathOut = os.path.join(dirOut, '00040000000FC500', 'romfs')
             logFileName = os.path.join(dirOut, 'BD_mod.log')
             dataFile = get_filename('data/bd.xz')
+            self.headersOut = os.path.join(dirOut, 'headers_BD')
         elif settings['game'] == 'BS':
             self.pathOut = os.path.join(dirOut, '000400000017BA00', 'romfs')
             logFileName = os.path.join(dirOut, 'BS_mod.log')
             dataFile = get_filename('data/bs.xz')
+            self.headersOut = os.path.join(dirOut, 'headers_BS')
         else:
             sys.exit(f"{settings['game']} is not allowed as the game setting!")
 
         if os.path.isdir(self.pathOut):
             shutil.rmtree(self.pathOut)
         os.makedirs(self.pathOut)
+
+        if not os.path.isdir(self.headersOut):
+            os.makedirs(self.headersOut)
 
         self.pathIn = settings['rom']
         dataFile = get_filename(os.path.join(self.pathIn, 'do_not_remove.xz'))
@@ -70,6 +75,7 @@ class PACK:
                     if crowd.isModified:
                         crowd.dump(self.pathOut)
                         moddedFiles.append(crowd.moddedFiles)
+                    crowd.dumpHeaders(self.headersOut)
 
                 if 'crowd.xls' in spreadsheets:
                     spreadsheets.remove('crowd.xls')
@@ -90,6 +96,7 @@ class PACK:
                         name = table.getFileName()
                         if name in bytefiles:
                             bytefiles.remove(name)
+                    table.dumpHeaders(self.headersOut)
                 except:
                     skippedFiles.append(fname)
 
