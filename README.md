@@ -43,3 +43,8 @@ Editing files, even in a spreadsheet, will be a bit complicated. Please read thi
   columns labeled `Text Pntr` and `Label Pntr`. These columns need to
   be updated if you change any text, but don't worry! The tool will
   automatically update them for you!
+
+- You can label column headers in any spreadsheet you're reading or
+  editing. These headers will be saved in the
+  `romfs_packed/headers_XX` folder and will be used when unpacked in
+  the future. Don't move or delete this folder.

@@ -11,9 +11,7 @@ a = Analysis(
     ],
     pathex=[],
     binaries=[],
-    datas=[
-        ('data/*.xz', 'data'),
-    ],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],
@@ -27,7 +25,8 @@ a = Analysis(
 pyz = PYZ(
     a.pure,
     a.zipped_data,
-    cipher=block_cipher
+    cipher=block_cipher,
+    name='mybuild'
 )
 
 exe = EXE(

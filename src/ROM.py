@@ -145,9 +145,9 @@ class PACK:
 
         os.chdir(dir)
 
+        logger.removeHandler(logger.handlers[0])
         if not os.path.getsize(logfile):
             os.remove(logfile)
-        logger.removeHandler(logger.handlers[0])
 
 
 class UNPACK:
