@@ -119,7 +119,26 @@ class GuiApplication:
         # Set path
         path, dir = os.path.split(path)
         while dir:
-            if 'romfs' in dir or 'RomFS' in dir:
+            # Allow for romfs/<titleID> to be selected
+            is_romfs = 'romfs' in dir.lower()
+            is_titleid = '00040000' in dir
+            if is_romfs:
+                _, directories, _ = next(os.walk(os.path.join(path, dir)))
+                if any(['0004000' in d for d in directories]):
+                    if len(directories) == 1 and '00040000' in directories[0]:
+                        dir = '/'.join([dir, directories[0]])
+                    if '00040000000FC500' in directories:
+                        dir = '/'.join([dir, '00040000000FC500'])
+                    elif '000400000017BA00' in directories:
+                        dir = '/'.join([dir, '000400000017BA00'])
+                    else:
+                        self.clearBottomLabels()
+                        self.bottomLabel("Pick the titleID", 'red')
+                        self.settings['rom'].set('')
+                        return
+                        
+            if is_romfs or is_titleid:
+            # if 'romfs' in dir or 'RomFS' in dir or '0004000000' in dir:
                 # path = os.path.join(path, dir)
                 path = '/'.join([path, dir])
                 self.settings['rom'].set(path)
